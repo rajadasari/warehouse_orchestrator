@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Warehouse UI",
+      "type": "npm",
+      "script": "dev",
+      "path": "client/warehouse-ui",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "typescript",
+        "fileLocation": "relative",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "ready in"
+        }
+      }
+    },
+    {
+      "label": "Start AuthService (Backend)",
+      "type": "shell",
+      "command": "mvn spring-boot:run -pl services/auth-service -am",
+      "isBackground": true,
+      "options": {
+        "env": {
+          "DB_HOST": "[::1]",
+          "DB_PORT": "5432",
+          "DB_NAME": "warehouse_db",
+          "DB_USERNAME": "warehouse_app",
+          "DB_PASSWORD": "warehouse_secure_pass_2026",
+          "SPRING_PROFILES_ACTIVE": "dev"
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Fullstack (Backend + Frontend)",
+      "dependsOn": [
+        "Start AuthService (Backend)",
+        "Start Warehouse UI"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

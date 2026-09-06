@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Backend: AuthServiceApplication",
+      "request": "launch",
+      "mainClass": "com.company.warehouse.auth.AuthServiceApplication",
+      "projectName": "auth-service",
+      "env": {
+        "DB_HOST": "[::1]",
+        "DB_PORT": "5432",
+        "DB_NAME": "warehouse_db",
+        "DB_USERNAME": "warehouse_app",
+        "DB_PASSWORD": "warehouse_secure_pass_2026",
+        "SPRING_PROFILES_ACTIVE": "dev"
+      }
+    },
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "Frontend: Warehouse UI (Chrome)",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/client/warehouse-ui/src",
+      "preLaunchTask": "Start Warehouse UI"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Fullstack: Backend (Auth) + Frontend (UI)",
+      "configurations": [
+        "Backend: AuthServiceApplication",
+        "Frontend: Warehouse UI (Chrome)"
+      ]
+    }
+  ]
+}

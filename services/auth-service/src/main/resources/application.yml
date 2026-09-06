@@ -1,0 +1,52 @@
+server:
+  port: ${SERVER_PORT:8085}
+
+grpc:
+  server:
+    port: ${GRPC_PORT:9091}
+
+spring:
+  application:
+    name: auth-service
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:[::1]}:${DB_PORT:5432}/${DB_NAME:warehouse_db}?currentSchema=auth
+    username: ${DB_USERNAME:warehouse_app}
+    password: ${DB_PASSWORD:warehouse_secure_pass_2026}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: AuthHikariPool
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 300000
+      connection-timeout: 20000
+      max-lifetime: 1800000
+
+  jpa:
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        default_schema: auth
+        format_sql: false
+        jdbc:
+          time_zone: UTC
+    hibernate:
+      ddl-auto: validate
+
+  flyway:
+    enabled: true
+    schemas: auth
+    default-schema: auth
+    table: flyway_schema_history
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

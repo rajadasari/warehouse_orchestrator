@@ -1,0 +1,22 @@
+/* ==========================================================================
+   Warehouse Orchestrator - Offline & Air-Gapped Typography
+   Self-Hosted Inter Font Declarations via @fontsource/inter
+   Zero External Requests to Google Fonts / CDNs
+   ========================================================================== */
+
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tabular figures utility for real-time barcode counters, conveyor speeds, and clocks */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}

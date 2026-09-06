@@ -1,0 +1,129 @@
+:root {
+  /* ==========================================================================
+     PRIMARY BRAND TOKENS (Enterprise Azure & Royal Blue Palette)
+     ========================================================================== */
+  --color-primary-50:  #EFF6FF;
+  --color-primary-100: #DBEAFE;
+  --color-primary-200: #BFDBFE;
+  --color-primary-300: #93C5FD;
+  --color-primary-400: #60A5FA;
+  --color-primary-500: #3B82F6;
+  --color-primary-600: #2563EB;
+  --color-primary-700: #1D4ED8;
+  --color-primary-800: #1E40AF;
+  --color-primary-900: #1E3A8A;
+  --color-primary-950: #172554;
+
+  /* Accent Brand (Vibrant Industrial Orange for CTAs like Reference Image 2) */
+  --color-accent-50:  #FFF7ED;
+  --color-accent-500: #F97316;
+  --color-accent-600: #EA580C;
+  --color-accent-700: #C2410C;
+
+  /* ==========================================================================
+     NEUTRAL TOKENS (Blue-Tinted Slate & Oceanic Grays)
+     ========================================================================== */
+  --color-neutral-0:   #FFFFFF;
+  --color-neutral-50:  #F0F5FF;
+  --color-neutral-100: #EBF3FE;
+  --color-neutral-200: #DCE6F5;
+  --color-neutral-300: #BAD0F0;
+  --color-neutral-400: #8DA2C0;
+  --color-neutral-500: #577399;
+  --color-neutral-600: #334D6E;
+  --color-neutral-700: #1C314C;
+  --color-neutral-800: #0F1E36;
+  --color-neutral-900: #0C1A30;
+  --color-neutral-950: #060D1A;
+
+  /* ==========================================================================
+     SEMANTIC STATUS PALETTE (WCAG AA Compliant)
+     ========================================================================== */
+  --color-success-bg:   #ECFDF5;
+  --color-success-base: #10B981;
+  --color-success-text: #065F46;
+
+  --color-warning-bg:   #FFFBEB;
+  --color-warning-base: #F59E0B;
+  --color-warning-text: #92400E;
+
+  --color-danger-bg:    #FEF2F2;
+  --color-danger-base:  #EF4444;
+  --color-danger-text:  #991B1B;
+
+  --color-info-bg:      #EFF6FF;
+  --color-info-base:    #3B82F6;
+  --color-info-text:    #1E40AF;
+
+  /* ==========================================================================
+     THEME VARIABLES (LIGHT MODE DEFAULT)
+     ========================================================================== */
+  --bg-page:           var(--color-neutral-50);
+  --bg-surface:        var(--color-neutral-0);
+  --bg-surface-subtle: var(--color-neutral-100);
+  --bg-sidebar:        #FFFFFF;
+  --bg-sidebar-active: #EFF6FF;
+  --text-sidebar-active: #2563EB;
+  --border-default:    var(--color-neutral-200);
+  --border-strong:     var(--color-neutral-300);
+  --text-primary:      var(--color-neutral-900);
+  --text-secondary:    var(--color-neutral-600);
+  --text-disabled:     var(--color-neutral-400);
+  --focus-ring:        rgba(37, 99, 235, 0.35);
+  --brand-gradient:    linear-gradient(135deg, #2563EB 0%, #3B82F6 100%);
+  --hero-gradient:     linear-gradient(145deg, #0A192F 0%, #0F2744 50%, #071324 100%);
+
+  /* ==========================================================================
+     SPATIAL & RADIUS TOKENS (8-Point Grid)
+     ========================================================================== */
+  --space-1:   0.25rem;  /* 4px */
+  --space-2:   0.5rem;   /* 8px */
+  --space-3:   0.75rem;  /* 12px */
+  --space-4:   1.0rem;   /* 16px */
+  --space-5:   1.25rem;  /* 20px */
+  --space-6:   1.5rem;   /* 24px */
+  --space-8:   2.0rem;   /* 32px */
+  --space-10:  2.5rem;   /* 40px */
+  --space-12:  3.0rem;   /* 48px */
+  --space-16:  4.0rem;   /* 64px */
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-sheet: 24px;
+  --radius-pill: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(12, 26, 48, 0.05);
+  --shadow-md: 0 4px 14px rgba(12, 26, 48, 0.08);
+  --shadow-lg: 0 12px 32px rgba(12, 26, 48, 0.12);
+  --shadow-cloud: 0 20px 48px -8px rgba(12, 26, 48, 0.18);
+  --shadow-glow: 0 0 24px rgba(37, 99, 235, 0.25);
+
+  /* Transitions */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ==========================================================================
+   DARK THEME OVERRIDES (Industrial Dark Cockpit & Deep Slate)
+   ========================================================================== */
+[data-theme="dark"] {
+  --bg-page:           #060D1A;
+  --bg-surface:        #0C1A30;
+  --bg-surface-subtle: #0F223D;
+  --bg-sidebar:        #081222;
+  --bg-sidebar-active: #172D4D;
+  --text-sidebar-active: #60A5FA;
+  --border-default:    #152945;
+  --border-strong:     #1E3B63;
+  --text-primary:      #F0F5FF;
+  --text-secondary:    #8DA2C0;
+  --text-disabled:     #4D668A;
+  --focus-ring:        rgba(96, 165, 250, 0.45);
+  --shadow-sm:         0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md:         0 4px 14px rgba(0, 0, 0, 0.5);
+  --shadow-lg:         0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-cloud:      0 20px 48px -8px rgba(0, 0, 0, 0.75);
+}

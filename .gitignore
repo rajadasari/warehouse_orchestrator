@@ -1,0 +1,107 @@
+# =============================================================================
+# Java & Maven Build Outputs
+# =============================================================================
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+*.zip
+*.tar.gz
+*.rar
+.flattened-pom.xml
+
+# =============================================================================
+# Node.js & Frontend Client (Vite / React)
+# =============================================================================
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+
+# =============================================================================
+# IDEs & Editors
+# =============================================================================
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+**/out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# VS Code (keep shared configs if any, ignore personal cache)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.sublime-workspace
+*.sublime-project
+
+# =============================================================================
+# Logs & Process Dumps
+# =============================================================================
+logs/
+**/logs/
+*.log
+hs_err_pid*
+replay_pid*
+
+# =============================================================================
+# Environment & Secrets (IEC 62443 Sensitive Info Protection)
+# =============================================================================
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+credentials.json
+*-local.yml
+*-local.properties
+application-local.yml
+application-local.properties
+
+# =============================================================================
+# Operating System Artifacts
+# =============================================================================
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# =============================================================================
+# Local Scratch & Agent Temp Files
+# =============================================================================
+.agent/
+test_*.json
+scratch/
