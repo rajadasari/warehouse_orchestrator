@@ -59,3 +59,29 @@ button {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-neutral-400);
 }
+
+/* Print styles for Operator Handover Slip (Thermal / Label / Paper) */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-handover-voucher, .print-handover-voucher * {
+    visibility: visible;
+  }
+  .print-handover-voucher {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100mm !important;
+    margin: 0 !important;
+    padding: 14px !important;
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    border: 2px dashed #000000 !important;
+    box-shadow: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

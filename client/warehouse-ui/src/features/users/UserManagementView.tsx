@@ -10,9 +10,11 @@ import {
   Building2, 
   KeyRound, 
   X,
-  Sparkles,
   RefreshCw,
-  Loader2
+  Loader2,
+  Printer,
+  Copy,
+  Check
 } from 'lucide-react';
 import { 
   fetchUsersApi, 
@@ -21,6 +23,19 @@ import {
   UserItem, 
   RoleItem 
 } from '../../services/authService';
+
+const generateOneTimePasskey = () => {
+  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let p1 = '';
+  let p2 = '';
+  for (let i = 0; i < 4; i++) {
+    p1 += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  for (let i = 0; i < 3; i++) {
+    p2 += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `WHS-${p1}-${p2}`;
+};
 
 export const UserManagementView: React.FC = () => {
   const [users, setUsers] = useState<UserItem[]>([]);
@@ -40,6 +55,20 @@ export const UserManagementView: React.FC = () => {
   const [newZone, setNewZone] = useState('INBOUND_STAGING');
   const [newBadge, setNewBadge] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+
+  // One-Time Handover Passkey state
+  const [oneTimePasskey, setOneTimePasskey] = useState(generateOneTimePasskey());
+  const [createdHandover, setCreatedHandover] = useState<{
+    fullName: string;
+    username: string;
+    roleName: string;
+    defaultZone: string;
+    operatorBadgeId?: string;
+    passkey: string;
+    issuedAt: string;
+  } | null>(null);
+  const [isHandoverModalOpen, setIsHandoverModalOpen] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -83,6 +112,9 @@ export const UserManagementView: React.FC = () => {
     setFormError(null);
 
     try {
+      const selectedRoleObj = roles.find(r => r.roleCode === newRole);
+      const roleDisplayName = selectedRoleObj ? selectedRoleObj.roleName : newRole;
+
       await createUserApi({
         username: newUsername,
         fullName: newFullName,
@@ -90,14 +122,30 @@ export const UserManagementView: React.FC = () => {
         role: newRole,
         facilityId: 'FAC-BLR-01',
         defaultZone: newZone,
-        operatorBadgeId: newBadge || undefined
+        operatorBadgeId: newBadge || undefined,
+        password: oneTimePasskey
+      });
+
+      // Prepare handover slip data
+      setCreatedHandover({
+        fullName: newFullName,
+        username: newUsername,
+        roleName: roleDisplayName,
+        defaultZone: newZone,
+        operatorBadgeId: newBadge || undefined,
+        passkey: oneTimePasskey,
+        issuedAt: new Date().toLocaleString()
       });
 
       setIsAddModalOpen(false);
+      setIsHandoverModalOpen(true);
+
+      // Reset form fields and generate fresh passkey for next user
       setNewFullName('');
       setNewUsername('');
       setNewEmail('');
       setNewBadge('');
+      setOneTimePasskey(generateOneTimePasskey());
       await loadData();
     } catch (err: any) {
       setFormError(err.message || 'Failed to provision user');
@@ -753,17 +801,69 @@ export const UserManagementView: React.FC = () => {
               </div>
 
               <div style={{
-                padding: '8px 10px',
-                borderRadius: '6px',
+                padding: '10px 12px',
+                borderRadius: '8px',
                 backgroundColor: 'var(--bg-surface-subtle)',
-                fontSize: '11px',
-                color: 'var(--text-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
+                border: '1px solid var(--border-default)',
+                marginBottom: '10px'
               }}>
-                <Sparkles size={14} color="var(--color-primary-500)" />
-                <span>Initial password: <strong>TempIDP@2026!</strong> (mandatory reset on 1st login)</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <KeyRound size={13} color="var(--color-primary-500)" />
+                    One-Time Handover Passkey
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setOneTimePasskey(generateOneTimePasskey())}
+                    style={{
+                      fontSize: '10.5px',
+                      color: 'var(--color-primary-600)',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <RefreshCw size={11} />
+                    Regenerate
+                  </button>
+                </div>
+
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: 'var(--bg-page)',
+                  padding: '7px 10px',
+                  borderRadius: '6px',
+                  border: '1px dashed var(--border-strong)'
+                }}>
+                  <span style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                    fontSize: '13.5px',
+                    letterSpacing: '1px',
+                    color: 'var(--color-primary-600)'
+                  }}>
+                    {oneTimePasskey}
+                  </span>
+                  <span style={{
+                    fontSize: '9.5px',
+                    fontWeight: 600,
+                    color: '#F59E0B',
+                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                    padding: '2px 6px',
+                    borderRadius: '4px'
+                  }}>
+                    Single-Use Code
+                  </span>
+                </div>
+                <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: '6px 0 0 0' }}>
+                  Supervisor handover voucher will be generated for physical handover to the operator.
+                </p>
               </div>
 
               {/* Modal Actions */}
@@ -796,10 +896,266 @@ export const UserManagementView: React.FC = () => {
                     opacity: isSubmitting ? 0.7 : 1
                   }}
                 >
-                  {isSubmitting ? 'Provisioning...' : 'Create User'}
+                  {isSubmitting ? 'Provisioning...' : 'Create & Issue Handover Slip'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Operator Handover Slip Modal (Practice 1: Supervisor-Assisted Handover) */}
+      {isHandoverModalOpen && createdHandover && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(6, 13, 26, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderRadius: '14px',
+            border: '1px solid var(--border-default)',
+            width: '100%',
+            maxWidth: '460px',
+            boxShadow: 'var(--shadow-lg)',
+            overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div className="no-print" style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 18px',
+              borderBottom: '1px solid var(--border-default)',
+              backgroundColor: 'var(--bg-surface-subtle)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  padding: '5px',
+                  borderRadius: '7px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                  color: '#10B981',
+                  display: 'flex'
+                }}>
+                  <ShieldCheck size={16} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                    Operator Handover Slip
+                  </h3>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                    Physical credential handover • IEC 62443-4-2 compliant
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsHandoverModalOpen(false);
+                  setCreatedHandover(null);
+                }}
+                style={{ color: 'var(--text-secondary)', padding: '4px' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Printable Voucher Section */}
+            <div className="print-handover-voucher" style={{
+              padding: '18px',
+              backgroundColor: 'var(--bg-surface)'
+            }}>
+              {/* Slip Card */}
+              <div style={{
+                border: '1.5px dashed var(--border-strong)',
+                borderRadius: '10px',
+                padding: '14px 16px',
+                backgroundColor: 'var(--bg-page)'
+              }}>
+                {/* Voucher Header */}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  borderBottom: '1px solid var(--border-default)',
+                  paddingBottom: '8px',
+                  marginBottom: '10px'
+                }}>
+                  <div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.8px', color: 'var(--text-primary)' }}>
+                      FAC-BLR-01 • WAREHOUSE ORCHESTRATOR
+                    </span>
+                    <div style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>
+                      TERMINAL ACCESS HANDOVER VOUCHER
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+                    color: '#2563EB'
+                  }}>
+                    AIR-GAPPED OT
+                  </span>
+                </div>
+
+                {/* Operator Details Grid */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: '8px 12px',
+                  fontSize: '11px',
+                  marginBottom: '12px'
+                }}>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '9.5px', display: 'block' }}>OPERATOR NAME</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{createdHandover.fullName}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '9.5px', display: 'block' }}>ASSIGNED USERNAME</span>
+                    <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{createdHandover.username}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '9.5px', display: 'block' }}>OPERATIONAL ROLE</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{createdHandover.roleName}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '9.5px', display: 'block' }}>ASSIGNED WORK ZONE</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{createdHandover.defaultZone}</strong>
+                  </div>
+                  {createdHandover.operatorBadgeId && (
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '9.5px', display: 'block' }}>RFID BADGE SERIAL</span>
+                      <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{createdHandover.operatorBadgeId}</strong>
+                    </div>
+                  )}
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '9.5px', display: 'block' }}>ISSUED TIMESTAMP</span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '10px' }}>{createdHandover.issuedAt}</span>
+                  </div>
+                </div>
+
+                {/* Passkey Highlight Box */}
+                <div style={{
+                  backgroundColor: 'var(--bg-surface)',
+                  border: '1.5px solid var(--color-primary-500)',
+                  borderRadius: '8px',
+                  padding: '10px',
+                  textAlign: 'center',
+                  marginBottom: '10px'
+                }}>
+                  <div style={{ fontSize: '9.5px', fontWeight: 700, color: 'var(--color-primary-600)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '2px' }}>
+                    ONE-TIME TEMPORARY PASSKEY
+                  </div>
+                  <div style={{
+                    fontSize: '18px',
+                    fontWeight: 800,
+                    fontFamily: 'monospace',
+                    letterSpacing: '2px',
+                    color: 'var(--text-primary)'
+                  }}>
+                    {createdHandover.passkey}
+                  </div>
+                </div>
+
+                {/* Compliance & Reset Instruction */}
+                <div style={{
+                  fontSize: '9.5px',
+                  color: 'var(--text-secondary)',
+                  lineHeight: '1.3',
+                  backgroundColor: 'var(--bg-surface-subtle)',
+                  padding: '7px 9px',
+                  borderRadius: '6px',
+                  borderLeft: '3px solid #F59E0B'
+                }}>
+                  <strong>⚠️ MANDATORY FIRST-LOGIN RESET:</strong> Hand this slip physically to the operator. Upon typing this passkey at any warehouse terminal, the system will immediately require setting a confidential permanent password.
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="no-print" style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              borderTop: '1px solid var(--border-default)',
+              backgroundColor: 'var(--bg-surface-subtle)'
+            }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const credText = `FACILITY: FAC-BLR-01\nNAME: ${createdHandover.fullName}\nUSERNAME: ${createdHandover.username}\nROLE: ${createdHandover.roleName}\nZONE: ${createdHandover.defaultZone}\nONE-TIME PASSKEY: ${createdHandover.passkey}\nNOTE: Mandatory password reset upon first login.`;
+                  navigator.clipboard.writeText(credText);
+                  setCopiedKey(true);
+                  setTimeout(() => setCopiedKey(false), 2000);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontSize: '11.5px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  backgroundColor: 'var(--bg-surface)',
+                  border: '1px solid var(--border-strong)'
+                }}
+              >
+                {copiedKey ? <Check size={13} color="#10B981" /> : <Copy size={13} />}
+                <span>{copiedKey ? 'Copied Details' : 'Copy Credentials'}</span>
+              </button>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    color: '#FFFFFF',
+                    backgroundColor: 'var(--color-primary-600)'
+                  }}
+                >
+                  <Printer size={13} />
+                  <span>Print Slip</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsHandoverModalOpen(false);
+                    setCreatedHandover(null);
+                  }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    color: 'var(--text-secondary)',
+                    backgroundColor: 'var(--bg-surface)'
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

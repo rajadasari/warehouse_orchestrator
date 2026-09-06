@@ -22,10 +22,10 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+  const SHOW_RFID_BADGE = false; // Flag to hide RFID Badge view for now
   const [authMode, setAuthMode] = useState<'CREDENTIALS' | 'BADGE'>('CREDENTIALS');
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('TempIDP@2026!');
-  const [rememberMe, setRememberMe] = useState(true);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [badgeId, setBadgeId] = useState('');
@@ -393,59 +393,61 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </p>
           </div>
 
-          {/* Quick Switch: Password vs RFID Badge Tap */}
-          <div style={{
-            display: 'flex',
-            backgroundColor: 'var(--bg-surface-subtle)',
-            padding: '3px',
-            borderRadius: '9px',
-            marginBottom: '14px'
-          }}>
-            <button
-              type="button"
-              onClick={() => setAuthMode('CREDENTIALS')}
-              style={{
-                flex: 1,
-                padding: '6px 10px',
-                borderRadius: '7px',
-                fontSize: '11.5px',
-                fontWeight: 600,
-                backgroundColor: authMode === 'CREDENTIALS' ? 'var(--bg-surface)' : 'transparent',
-                color: authMode === 'CREDENTIALS' ? 'var(--text-primary)' : 'var(--text-secondary)',
-                boxShadow: authMode === 'CREDENTIALS' ? 'var(--shadow-sm)' : 'none',
-                transition: 'all var(--transition-fast)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '5px'
-              }}
-            >
-              <Key size={13} />
-              <span>Password</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setAuthMode('BADGE')}
-              style={{
-                flex: 1,
-                padding: '6px 10px',
-                borderRadius: '7px',
-                fontSize: '11.5px',
-                fontWeight: 600,
-                backgroundColor: authMode === 'BADGE' ? 'var(--bg-surface)' : 'transparent',
-                color: authMode === 'BADGE' ? 'var(--text-primary)' : 'var(--text-secondary)',
-                boxShadow: authMode === 'BADGE' ? 'var(--shadow-sm)' : 'none',
-                transition: 'all var(--transition-fast)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '5px'
-              }}
-            >
-              <Radio size={13} />
-              <span>RFID Badge</span>
-            </button>
-          </div>
+          {/* Quick Switch: Password vs RFID Badge Tap (Hidden for now) */}
+          {SHOW_RFID_BADGE && (
+            <div style={{
+              display: 'flex',
+              backgroundColor: 'var(--bg-surface-subtle)',
+              padding: '3px',
+              borderRadius: '9px',
+              marginBottom: '14px'
+            }}>
+              <button
+                type="button"
+                onClick={() => setAuthMode('CREDENTIALS')}
+                style={{
+                  flex: 1,
+                  padding: '6px 10px',
+                  borderRadius: '7px',
+                  fontSize: '11.5px',
+                  fontWeight: 600,
+                  backgroundColor: authMode === 'CREDENTIALS' ? 'var(--bg-surface)' : 'transparent',
+                  color: authMode === 'CREDENTIALS' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  boxShadow: authMode === 'CREDENTIALS' ? 'var(--shadow-sm)' : 'none',
+                  transition: 'all var(--transition-fast)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px'
+                }}
+              >
+                <Key size={13} />
+                <span>Password</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthMode('BADGE')}
+                style={{
+                  flex: 1,
+                  padding: '6px 10px',
+                  borderRadius: '7px',
+                  fontSize: '11.5px',
+                  fontWeight: 600,
+                  backgroundColor: authMode === 'BADGE' ? 'var(--bg-surface)' : 'transparent',
+                  color: authMode === 'BADGE' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  boxShadow: authMode === 'BADGE' ? 'var(--shadow-sm)' : 'none',
+                  transition: 'all var(--transition-fast)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px'
+                }}
+              >
+                <Radio size={13} />
+                <span>RFID Badge</span>
+              </button>
+            </div>
+          )}
 
           {errorMsg && (
             <div style={{
@@ -462,7 +464,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           )}
 
           {/* Form Content */}
-          {authMode === 'CREDENTIALS' ? (
+          {(!SHOW_RFID_BADGE || authMode === 'CREDENTIALS') ? (
             <form onSubmit={handlePasswordLogin}>
               {/* Username / Email Input */}
               <div style={{ marginBottom: '10px' }}>
@@ -551,34 +553,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 </div>
               </div>
 
-              {/* Remember Me & Forgot Password */}
+              {/* Forgot Password Link */}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
+                justifyContent: 'flex-end',
                 fontSize: '11px',
                 marginBottom: '14px'
               }}>
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer'
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    style={{
-                      accentColor: 'var(--color-primary-600)',
-                      width: '13px',
-                      height: '13px',
-                      borderRadius: '3px'
-                    }}
-                  />
-                  <span>Stay signed in (30d)</span>
-                </label>
                 <a 
                   href="#forgot" 
                   onClick={(e) => { e.preventDefault(); alert('Please contact your shift supervisor or OT security admin to reset credentials.'); }}
@@ -733,23 +715,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <span>Sign in with SSO</span>
           </button>
 
-          {/* Quick Demo Fill Helper */}
-          <div style={{
-            marginTop: '12px',
-            paddingTop: '10px',
-            borderTop: '1px solid var(--border-default)',
-            textAlign: 'center'
-          }}>
-            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-              Quick Demo Fill: <button 
-                type="button" 
-                onClick={() => { setUsername('admin'); setPassword('TempIDP@2026!'); }}
-                style={{ color: 'var(--color-primary-600)', fontWeight: 600, textDecoration: 'underline' }}
-              >
-                admin / TempIDP@2026!
-              </button>
-            </span>
-          </div>
         </div>
       </div>
 

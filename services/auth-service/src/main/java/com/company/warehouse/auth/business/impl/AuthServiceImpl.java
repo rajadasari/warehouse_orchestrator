@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -43,6 +44,20 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
 
     private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_INSTANT;
+    private static final String UNAMBIGUOUS_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    private String generateSecurePasskey() {
+        StringBuilder sb = new StringBuilder("WHS-");
+        for (int i = 0; i < 4; i++) {
+            sb.append(UNAMBIGUOUS_CHARS.charAt(SECURE_RANDOM.nextInt(UNAMBIGUOUS_CHARS.length())));
+        }
+        sb.append("-");
+        for (int i = 0; i < 3; i++) {
+            sb.append(UNAMBIGUOUS_CHARS.charAt(SECURE_RANDOM.nextInt(UNAMBIGUOUS_CHARS.length())));
+        }
+        return sb.toString();
+    }
 
     @Override
     @Transactional
@@ -71,7 +86,11 @@ public class AuthServiceImpl implements AuthService {
 
             String rawPassword = request.getPassword();
             boolean passwordMatches = rawPassword != null && passwordEncoder.matches(rawPassword, user.getPasswordHash());
-            if (!passwordMatches && "TempIDP@2026!".equals(rawPassword)) {
+            if (!passwordMatches && rawPassword != null && (
+                    "TempIDP@2026!".equals(rawPassword) ||
+                    (user.getPasswordHash() != null && user.getPasswordHash().startsWith("INIT:") && 
+                     user.getPasswordHash().substring(5).equals(rawPassword))
+            )) {
                 // Auto-upgrade initial bootstrap dummy hash in PostgreSQL to cryptographic Argon2id hash
                 user.setPasswordHash(passwordEncoder.encode(rawPassword));
                 userRepository.save(user);
@@ -170,8 +189,8 @@ public class AuthServiceImpl implements AuthService {
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid role code")));
 
         String password = (request.getPassword() != null && !request.getPassword().isBlank()) 
-                ? request.getPassword() 
-                : "TempIDP@2026!";
+                ? request.getPassword().trim() 
+                : generateSecurePasskey();
 
         Set<RoleEntity> roles = new HashSet<>();
         roles.add(role);
@@ -240,7 +259,11 @@ public class AuthServiceImpl implements AuthService {
         }
 
         boolean currentMatches = passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash());
-        if (!currentMatches && "TempIDP@2026!".equals(request.getCurrentPassword())) {
+        if (!currentMatches && (
+                "TempIDP@2026!".equals(request.getCurrentPassword()) ||
+                (user.getPasswordHash() != null && user.getPasswordHash().startsWith("INIT:") && 
+                 user.getPasswordHash().substring(5).equals(request.getCurrentPassword()))
+        )) {
             currentMatches = true;
         }
 
