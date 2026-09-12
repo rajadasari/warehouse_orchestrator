@@ -16,6 +16,7 @@
 | **Status** | **APPROVED / MANDATORY** |
 | **Applicability** | All Web Frontends, Admin Panels, Manufacturing Cockpits/HMIs, Modern Analytics, and Spring Boot Backends |
 | **Enforcement Level** | Automated CI/CD Gating (ESLint, Stylelint, axe-core, ArchUnit, Lighthouse CI) |
+| **Changelog v3.2.0** | Updated Side Navigation Bar Light Mode Theme to Deep Sapphire Blue (`#153d77`) with High-Contrast White Active Indicators (`#FFFFFF` Pill with `#153d77` Text & Icon) for enhanced ergonomic brand presence and optimal readability. |
 | **Changelog v3.1.0** | Added Enterprise Blue Light Mode Theme (`#F0F5FF` Azure Page Canvas, `#2563EB` Royal Blue Interactive Default), Global Practice Compact Typographic Calibration (Eliminating 100% Zoom Bloat; Root Base 14px / 13.5px; Display 20–22px, Metrics 22–24px, Body 13px, Table 12px, Micro 11px), Soft UI & Floating Sheet Architecture (`--radius-sheet: 24px`), Cloud Elevation Shadows, and Unified Font-Sans Architecture. |
 | **Changelog v3.0.0** | Added Global Best Practices: WCAG 2.2 Advanced A11y, `prefers-reduced-motion`, Skip Links, CSS Logical Properties (i18n/RTL), Core Web Vitals, Security Hygiene, and Stale Network Telemetry States |
 
@@ -115,6 +116,9 @@ The application mandates the **60-30-10 Rule**:
   --bg-page:           var(--color-neutral-50);  /* #F0F5FF Atmospheric Cool Azure Canvas */
   --bg-surface:        var(--color-neutral-0);   /* #FFFFFF Crisp White Sheet & Panels */
   --bg-surface-subtle: var(--color-neutral-100); /* #EBF3FE Inset Containers & Table Row Hover */
+  --bg-sidebar:        #153d77;                  /* #153d77 Deep Sapphire Blue Navigation Rail (Light Theme) */
+  --bg-sidebar-active: #EFF6FF;                  /* High-Contrast Active Pill Container */
+  --text-sidebar-active: #153d77;                /* Deep Sapphire Blue Active Item Text / Icon */
   --border-default:    var(--color-neutral-200); /* #DCE6F5 Subtle Blue Hairline Borders */
   --border-strong:     var(--color-neutral-300); /* #BAD0F0 Defined Blue Borders for Focus/Inputs */
   --text-primary:      var(--color-neutral-900); /* #0C1A30 Deep Oceanic Navy */
@@ -1392,7 +1396,7 @@ To guarantee optimal ergonomic readability on standard plant floor terminals, op
 #### 7.6.2. Mandatory Component Scale Values
 | Element Type | Target Metric | Purpose |
 | :--- | :--- | :--- |
-| **Global Navigation Drawer** | `width: 210px`, padding `16px 12px` | Compact sidebar footprint |
+| **Global Navigation Drawer** | `width: 210px`, padding `16px 12px`, Light Mode `#153d77` | Compact sidebar footprint (Deep Sapphire Blue) |
 | **Page Wrapper** | `padding: 16px 20px`, max-width `1440px` | Eliminates overflow at 100% zoom |
 | **Primary Titles** | `fontSize: 18px`, `fontWeight: 700` | Controlled hierarchy |
 | **Secondary Guidance** | `fontSize: 11.5px`, `var(--text-secondary)` | Subtitle context |

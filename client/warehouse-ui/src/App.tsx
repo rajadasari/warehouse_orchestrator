@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { LoginPage } from './features/auth/LoginPage';
 import { SideNavBar } from './components/layout/SideNavBar';
 import { UserManagementView } from './features/users/UserManagementView';
+import { MasterDataView } from './features/masterdata/MasterDataView';
+import { PalletInventoryView } from './features/inventory/PalletInventoryView';
+import { ResourceConfigView } from './features/resources/ResourceConfigView';
+import { WmsFormsView } from './features/wms/WmsFormsView';
 
 interface AuthSession {
   isLoggedIn: boolean;
@@ -12,11 +16,22 @@ interface AuthSession {
 
 export const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [session, setSession] = useState<AuthSession>({
-    isLoggedIn: false,
-    username: '',
-    fullName: '',
-    role: ''
+  const [activeNav, setActiveNav] = useState<'users' | 'configuration' | 'master-data' | 'resource-config' | 'inventory' | 'custom-fields' | 'wms-forms'>('wms-forms');
+  const [session, setSession] = useState<AuthSession>(() => {
+    const saved = localStorage.getItem('warehouse_session');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // ignore parse error
+      }
+    }
+    return {
+      isLoggedIn: false,
+      username: '',
+      fullName: '',
+      role: ''
+    };
   });
 
   // Sync theme with html root attribute
@@ -29,12 +44,14 @@ export const App: React.FC = () => {
   };
 
   const handleLoginSuccess = (user: { username: string; fullName: string; role: string }) => {
-    setSession({
+    const newSession: AuthSession = {
       isLoggedIn: true,
       username: user.username,
       fullName: user.fullName,
       role: user.role
-    });
+    };
+    setSession(newSession);
+    localStorage.setItem('warehouse_session', JSON.stringify(newSession));
   };
 
   const handleLogout = () => {
@@ -44,6 +61,7 @@ export const App: React.FC = () => {
       fullName: '',
       role: ''
     });
+    localStorage.removeItem('warehouse_session');
   };
 
   if (!session.isLoggedIn) {
@@ -53,29 +71,38 @@ export const App: React.FC = () => {
   return (
     <div style={{
       display: 'flex',
-      minHeight: '100vh',
+      height: '100vh',
+      maxHeight: '100vh',
+      overflow: 'hidden',
       backgroundColor: 'var(--bg-page)',
       color: 'var(--text-primary)'
     }}>
-      {/* Side Navigation Bar matching Reference Image 3 */}
+      {/* Side Navigation Bar with Master Data & Configuration integration */}
       <SideNavBar
         currentTheme={theme}
         onToggleTheme={toggleTheme}
         onLogout={handleLogout}
-        activeItem="users"
+        activeItem={activeNav}
+        onSelectNav={(item) => setActiveNav(item as any)}
         userName={session.fullName}
         userRole={session.role}
       />
 
-      {/* Main Content Area - User Content Only as requested */}
+      {/* Main Content Area */}
       <main style={{
         flex: 1,
         height: '100vh',
-        overflowY: 'auto',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
         backgroundColor: 'var(--bg-page)',
         transition: 'background-color var(--transition-normal)'
       }}>
-        <UserManagementView />
+        {(activeNav === 'configuration' || activeNav === 'master-data') && <MasterDataView />}
+        {activeNav === 'resource-config' && <ResourceConfigView />}
+        {activeNav === 'users' && <UserManagementView />}
+        {(activeNav === 'inventory' || activeNav === 'custom-fields') && <PalletInventoryView />}
+        {activeNav === 'wms-forms' && <WmsFormsView />}
       </main>
     </div>
   );

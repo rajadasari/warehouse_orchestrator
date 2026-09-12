@@ -7,6 +7,23 @@
       "request": "launch",
       "mainClass": "com.company.warehouse.auth.AuthServiceApplication",
       "projectName": "auth-service",
+      "vmArgs": "-Xmx384m -Xms128m",
+      "env": {
+        "DB_HOST": "[::1]",
+        "DB_PORT": "5432",
+        "DB_NAME": "warehouse_db",
+        "DB_USERNAME": "warehouse_app",
+        "DB_PASSWORD": "warehouse_secure_pass_2026",
+        "SPRING_PROFILES_ACTIVE": "dev"
+      }
+    },
+    {
+      "type": "java",
+      "name": "Backend: WesServiceApplication",
+      "request": "launch",
+      "mainClass": "com.company.warehouse.wes.WesServiceApplication",
+      "projectName": "wes-service",
+      "vmArgs": "-Xmx384m -Xms128m",
       "env": {
         "DB_HOST": "[::1]",
         "DB_PORT": "5432",
@@ -26,6 +43,14 @@
     }
   ],
   "compounds": [
+    {
+      "name": "Fullstack: Backend (Auth + WES) + Frontend (UI)",
+      "configurations": [
+        "Backend: AuthServiceApplication",
+        "Backend: WesServiceApplication",
+        "Frontend: Warehouse UI (Chrome)"
+      ]
+    },
     {
       "name": "Fullstack: Backend (Auth) + Frontend (UI)",
       "configurations": [

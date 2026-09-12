@@ -1,0 +1,18 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Backend: WesServiceApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="wes-service" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.company.warehouse.wes.WesServiceApplication" />
+    <option name="VM_PARAMETERS" value="-Xmx384m -Xms128m" />
+    <option name="ACTIVE_PROFILES" value="dev" />
+    <envs>
+      <env name="DB_HOST" value="[::1]" />
+      <env name="DB_PORT" value="5432" />
+      <env name="DB_NAME" value="warehouse_db" />
+      <env name="DB_USERNAME" value="warehouse_app" />
+      <env name="DB_PASSWORD" value="warehouse_secure_pass_2026" />
+    </envs>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

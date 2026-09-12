@@ -16,7 +16,7 @@
 param(
     [string]$NewPassword = "",
     [string]$PostgresUser = "postgres",
-    [string]$DbName = "warehouse_db"
+    [string]$DbName = "warehouse_test_db"
 )
 
 Write-Host "============================================================" -ForegroundColor Cyan

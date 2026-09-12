@@ -46,7 +46,48 @@ Before executing this runbook, verify on the target Windows machine:
 
 ---
 
-## 2. Step-by-Step Deployment Procedure
+## 2. Automated Deployment Pipeline for Site Engineers (Recommended)
+
+For rapid field commissioning, an idempotent end-to-end automation script is provided at `scripts/onprem/deploy_windows_platform.ps1`. This script automates all 10 phases: pre-flight checks, directory hierarchy, database initialization, artifact compilation and staging, secrets hardening, WinSW service wrapper configuration, Windows service registration, firewall configuration, sequential phased startup, and health monitoring.
+
+### 2.1 Quick-Start: Build and Deploy from Repository Source
+Open an elevated **PowerShell (Run as Administrator)** and run:
+```powershell
+Set-Location "C:\Users\Windows10\Documents\GitHub\Warehouse_orchestrator"
+.\scripts\onprem\deploy_windows_platform.ps1
+```
+
+### 2.2 Air-Gapped / Production Release Media Deployment
+When deploying from USB media or network share containing pre-compiled JARs and UI assets (e.g. `D:\release\`):
+```powershell
+Set-Location "C:\Users\Windows10\Documents\GitHub\Warehouse_orchestrator"
+.\scripts\onprem\deploy_windows_platform.ps1 -Mode FromReleasePackage -ReleasePath "D:\release"
+```
+
+### 2.3 Day-2 Operational Management Utility
+Site engineers can inspect, start, stop, restart, or follow live logs across all 7 services:
+```powershell
+# Check status of all 7 Windows Services & Actuators
+.\scripts\onprem\manage_services.ps1 -Action status
+
+# Graceful sequential startup
+.\scripts\onprem\manage_services.ps1 -Action start
+
+# Graceful shutdown (reverse dependency order)
+.\scripts\onprem\manage_services.ps1 -Action stop
+
+# Restart entire platform
+.\scripts\onprem\manage_services.ps1 -Action restart
+
+# Tail live log for a specific service (e.g. WES)
+.\scripts\onprem\manage_services.ps1 -Action logs -Service wes
+```
+
+---
+
+## 3. Manual Step-by-Step Deployment Procedure (Reference)
+
+If performing each step manually or diagnosing individual components:
 
 ### Step 1: Create the Standard Production Directory Tree
 
@@ -340,13 +381,13 @@ Verify that all services report `UP` status:
 
 ```powershell
 $ports = @{
-    "Auth Service"    = "http://localhost:8081/actuator/health"
-    "WES Service"     = "http://localhost:8082/actuator/health"
-    "WMS Service"     = "http://localhost:8083/actuator/health"
-    "WCS Service"     = "http://localhost:8084/actuator/health"
-    "ASRS Service"    = "http://localhost:8085/actuator/health"
-    "Fleet Service"   = "http://localhost:8086/actuator/health"
     "Gateway/UI"      = "http://localhost:8080/actuator/health"
+    "Auth Service"    = "http://localhost:8085/actuator/health"
+    "WES Service"     = "http://localhost:8086/actuator/health"
+    "WMS Service"     = "http://localhost:8082/actuator/health"
+    "WCS Service"     = "http://localhost:8083/actuator/health"
+    "ASRS Service"    = "http://localhost:8087/actuator/health"
+    "Fleet Service"   = "http://localhost:8084/actuator/health"
 }
 
 foreach ($svc in $ports.Keys) {
@@ -374,13 +415,43 @@ New-NetFirewallRule -DisplayName "Warehouse Mosquitto MQTT" -Direction Inbound -
 ```
 
 Open a browser to: `http://localhost:8080` (or `https://<server-ip>:8080`).
-You are now ready to log in with initial credentials (`admin` / `TempIDP@2026!`).
+
+#### Default Admin User Credentials:
+- **Username**: `admin`
+- **Password**: `Admin@Master2026!` *(Configured by `init_admin.ps1` in Phase 10; or custom password passed to `-AdminPassword`)*
+- **Force Password Change**: Prompted upon first login (IEC 62443 requirement).
+
+> [!NOTE]
+> **Admin Seeding Flow**: `init.sql` creates database schemas and the `warehouse_app` role. When `auth-service` boots up, Flyway migration `V1__init_auth_schema.sql` creates the tables and inserts the `admin` record. Lastly, `init_admin.ps1` sets the active Day-0 password.
 
 ---
 
-## 3. Day-2 Maintenance & JAR Upgrade Procedures
+## 3. Day-2 Maintenance & Operational Procedures
 
-### 3.1 Upgrading an Individual Microservice JAR
+### 3.1 Service Management Utility (`manage_services.ps1`)
+The platform includes an operational utility at `scripts/onprem/manage_services.ps1`:
+
+```powershell
+# Check health across all 7 services & SCM:
+.\scripts\onprem\manage_services.ps1 -Action status
+
+# Graceful sequential startup:
+.\scripts\onprem\manage_services.ps1 -Action start
+
+# Graceful shutdown (reverse dependency order):
+.\scripts\onprem\manage_services.ps1 -Action stop
+
+# Restart platform:
+.\scripts\onprem\manage_services.ps1 -Action restart
+
+# Unregister services from Windows SCM:
+.\scripts\onprem\manage_services.ps1 -Action uninstall
+
+# Tail live log for a service (e.g., auth or wes):
+.\scripts\onprem\manage_services.ps1 -Action logs -Service auth
+```
+
+### 3.2 Upgrading an Individual Microservice JAR
 
 When a new patch or version of a specific service is released (e.g. `wes-service-1.0.1.jar`):
 
@@ -398,31 +469,7 @@ Copy-Item "D:\patches\wes-service-1.0.1.jar" "C:\warehouse-platform\bin\wes-serv
 Start-Service warehouse-wes
 
 # 5. Verify health check
-Invoke-RestMethod -Uri "http://localhost:8082/actuator/health"
-```
-
-### 3.2 Stopping and Restarting All Platform Services
-
-To perform a complete graceful shutdown or restart:
-
-```powershell
-# Graceful Shutdown (Reverse dependency order)
-Stop-Service warehouse-gateway
-Stop-Service warehouse-wes
-Stop-Service warehouse-wms
-Stop-Service warehouse-fleet
-Stop-Service warehouse-asrs
-Stop-Service warehouse-wcs
-Stop-Service warehouse-auth
-
-# Complete Startup (Forward dependency order)
-Start-Service warehouse-auth
-Start-Sleep -Seconds 5
-Start-Service warehouse-wcs, warehouse-asrs, warehouse-fleet
-Start-Sleep -Seconds 5
-Start-Service warehouse-wms, warehouse-wes
-Start-Sleep -Seconds 8
-Start-Service warehouse-gateway
+Invoke-RestMethod -Uri "http://localhost:8086/actuator/health"
 ```
 
 ### 3.3 Log Inspection and Troubleshooting
@@ -436,3 +483,48 @@ Each service writes standard and error logs to `C:\warehouse-platform\logs\`:
   Get-Content -Path "C:\warehouse-platform\logs\auth-service.out.log" -Wait -Tail 50
   ```
 - Windows Event Viewer: Event Viewer -> Windows Logs -> Application (Source: `warehouse-*`).
+
+---
+
+## 4. Decommissioning, Teardown & Factory Reset (Multi-Run Testing)
+
+To test the deployment pipeline multiple times on the same machine from a clean state:
+
+### 4.1 Automated Factory Reset Script
+Use `scripts/onprem/decommission_platform.ps1` in an elevated **PowerShell (Run as Administrator)**:
+
+```powershell
+Set-Location "C:\Users\Windows10\Documents\GitHub\Warehouse_orchestrator"
+
+# 1-Command Complete Wipe:
+.\scripts\onprem\decommission_platform.ps1 -DropDatabase -RemoveInstallDir
+```
+This automatically:
+1. Stops all 7 services in reverse order.
+2. Unregisters all 7 services from Windows SCM.
+3. Removes Windows Firewall inbound rules.
+4. Terminates PostgreSQL connections to `warehouse_test_db`, drops the database, and drops the `warehouse_app` role.
+5. Deletes `C:\warehouse-platform` completely.
+
+### 4.2 Manual Reset Commands
+```powershell
+# 1. Stop all services
+$services = @("warehouse-gateway", "warehouse-wes", "warehouse-wms", "warehouse-fleet", "warehouse-asrs", "warehouse-wcs", "warehouse-auth")
+foreach ($s in $services) { Stop-Service -Name $s -Force -ErrorAction SilentlyContinue }
+
+# 2. Unregister services from Windows
+foreach ($s in $services) { & sc.exe delete $s }
+
+# 3. Drop test database & user
+psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'warehouse_test_db';"
+psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS warehouse_test_db;"
+psql -U postgres -d postgres -c "DROP ROLE IF EXISTS warehouse_app;"
+
+# 4. Clean up files
+Remove-Item -Path "C:\warehouse-platform" -Recurse -Force -ErrorAction SilentlyContinue
+```
+
+Once decommissioned, you can immediately re-run:
+```powershell
+.\scripts\onprem\deploy_windows_platform.ps1
+```

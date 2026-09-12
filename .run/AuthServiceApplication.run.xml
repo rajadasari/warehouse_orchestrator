@@ -2,6 +2,7 @@
   <configuration default="false" name="Backend: AuthServiceApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
     <module name="auth-service" />
     <option name="SPRING_BOOT_MAIN_CLASS" value="com.company.warehouse.auth.AuthServiceApplication" />
+    <option name="VM_PARAMETERS" value="-Xmx384m -Xms128m" />
     <option name="ACTIVE_PROFILES" value="dev" />
     <envs>
       <env name="DB_HOST" value="[::1]" />

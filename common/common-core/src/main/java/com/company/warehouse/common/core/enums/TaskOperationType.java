@@ -1,0 +1,14 @@
+package com.company.warehouse.common.core.enums;
+
+public enum TaskOperationType {
+    PROFILE_SCAN_WEIGH,
+    WMS_BIN_ALLOCATION,
+    CONVEYOR_TRANSPORT,
+    FORKLIFT_MANUAL_MOVE,
+    QA_ALLERGEN_SAMPLING,
+    WMS_PUTAWAY_CONFIRM,
+    WMS_PRE_ANNOUNCE,
+    WMS_CREATE_ORDER,
+    WMS_RESERVE_ORDER,
+    WMS_SEND_TO_OUTBOUND
+}

@@ -60,10 +60,9 @@
      ========================================================================== */
   --bg-page:           var(--color-neutral-50);
   --bg-surface:        var(--color-neutral-0);
-  --bg-surface-subtle: var(--color-neutral-100);
-  --bg-sidebar:        #FFFFFF;
+  --bg-sidebar:        #153d77;
   --bg-sidebar-active: #EFF6FF;
-  --text-sidebar-active: #2563EB;
+  --text-sidebar-active: #153d77;
   --border-default:    var(--color-neutral-200);
   --border-strong:     var(--color-neutral-300);
   --text-primary:      var(--color-neutral-900);

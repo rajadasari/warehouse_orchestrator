@@ -23,10 +23,11 @@
     {
       "label": "Start AuthService (Backend)",
       "type": "shell",
-      "command": "mvn spring-boot:run -pl services/auth-service -am",
+      "command": "mvn spring-boot:run -pl services/auth-service -am '-Dspring-boot.run.jvmArguments=-Xmx384m -Xms128m'",
       "isBackground": true,
       "options": {
         "env": {
+          "MAVEN_OPTS": "-Xmx384m",
           "DB_HOST": "[::1]",
           "DB_PORT": "5432",
           "DB_NAME": "warehouse_db",
@@ -35,14 +36,62 @@
           "SPRING_PROFILES_ACTIVE": "dev"
         }
       },
-      "problemMatcher": []
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Starting \\w+Application",
+          "endsPattern": "Started \\w+Application"
+        }
+      }
+    },
+    {
+      "label": "Start WesService (Backend)",
+      "type": "shell",
+      "command": "mvn spring-boot:run -pl services/wes-service -am '-Dspring-boot.run.jvmArguments=-Xmx384m -Xms128m'",
+      "isBackground": true,
+      "options": {
+        "env": {
+          "MAVEN_OPTS": "-Xmx384m",
+          "DB_HOST": "[::1]",
+          "DB_PORT": "5432",
+          "DB_NAME": "warehouse_db",
+          "DB_USERNAME": "warehouse_app",
+          "DB_PASSWORD": "warehouse_secure_pass_2026",
+          "SPRING_PROFILES_ACTIVE": "dev"
+        }
+      },
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Starting \\w+Application",
+          "endsPattern": "Started \\w+Application"
+        }
+      }
     },
     {
       "label": "Start Fullstack (Backend + Frontend)",
       "dependsOn": [
         "Start AuthService (Backend)",
+        "Start WesService (Backend)",
         "Start Warehouse UI"
       ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "frontend+backend",
+      "dependsOn": [
+        "Start AuthService (Backend)",
+        "Start WesService (Backend)",
+        "Start Warehouse UI"
+      ],
+      "dependsOrder": "parallel",
       "problemMatcher": []
     }
   ]

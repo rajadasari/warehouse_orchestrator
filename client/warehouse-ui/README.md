@@ -99,4 +99,5 @@ client/warehouse-ui/
 
 In development, Vite proxies requests from the frontend to avoid CORS issues:
 - `/api/v1/auth/*` → `http://localhost:8085` (`auth-service`)
+- `/api/v1/wes/*` → `http://localhost:8086` (`wes-service`)
 - All database operations interact directly with PostgreSQL 17 on `[::1]:5432/warehouse_db`.
