@@ -22,21 +22,21 @@ import com.company.warehouse.wes.business.validation.model.PalletValidationConte
 import com.company.warehouse.wes.business.validation.model.ValidationResult;
 import com.company.warehouse.wes.business.validation.subvalidators.tier3.PalletLotTrackingValidator;
 import com.company.warehouse.wes.data.entity.ItemMasterEntity;
-import com.company.warehouse.wes.infrastructure.client.wms.auth.WmsTokenManager;
-import com.company.warehouse.wes.infrastructure.client.wms.config.WmsClientProperties;
-import com.company.warehouse.wes.infrastructure.client.wms.dto.WmsPreAnnounceRequestDto;
-import com.company.warehouse.wes.infrastructure.client.wms.mapper.WmsPayloadMapper;
+import com.company.warehouse.common.client.software.auth.TokenManager;
+import com.company.warehouse.common.client.software.dynamic.DynamicPayloadEngine;
+import com.company.warehouse.wes.infrastructure.adapter.wms.WmsClientProperties;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mapstruct.factory.Mappers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,12 +56,12 @@ class PalletFlowPipelineTest {
     @Mock
     private com.company.warehouse.wes.business.resource.ResourceManager resourceManager;
 
-    private WmsPayloadMapper mapper;
+    private DynamicPayloadEngine dynamicEngine;
     private PalletFlowCoordinator coordinator;
 
     @BeforeEach
     void setUp() {
-        mapper = Mappers.getMapper(WmsPayloadMapper.class);
+        dynamicEngine = new DynamicPayloadEngine(new ObjectMapper().findAndRegisterModules());
 
         PalletFlowStepHandler preAnnounceHandler = new WmsPreAnnounceStepHandler(wmsSpi, taskTrackingEngine);
         PalletFlowStepHandler createOrderHandler = new WmsCreateOrderStepHandler(wmsSpi, taskTrackingEngine);
@@ -101,8 +101,8 @@ class PalletFlowPipelineTest {
     }
 
     @Test
-    @DisplayName("DTO Filtering: Internal WES fields are omitted from WMS Pre-Announce DTO")
-    void testWmsDtoFiltering() {
+    @DisplayName("Dynamic Payload Engine: Resolves template dynamically for outbound WMS call")
+    void testDynamicPayloadGeneration() throws Exception {
         PalletPreAnnounceCommand command = PalletPreAnnounceCommand.builder()
                 .palletLpn("PAL-FILTER-001")
                 .palletTypeCode("EUR_WOOD")
@@ -116,28 +116,32 @@ class PalletFlowPipelineTest {
                 .sourceLocation("RCV-DOCK-02")
                 .build();
 
-        WmsPreAnnounceRequestDto wmsDto = mapper.toWmsPreAnnounceRequest(command);
+        String template = "{\"palletLpn\": \"{{pallet.palletLpn}}\", \"grossWeightKg\": \"{{pallet.actualWeightKg}}\", \"receivingLocation\": \"{{pallet.sourceLocation}}\"}";
+        Map<String, Object> context = Map.of("pallet", command);
 
-        assertThat(wmsDto.getPalletLpn()).isEqualTo("PAL-FILTER-001");
-        assertThat(wmsDto.getGrossWeightKg()).isEqualByComparingTo("1020");
-        assertThat(wmsDto.getReceivingLocation()).isEqualTo("RCV-DOCK-02");
-        assertThat(wmsDto.getReceiptTimestamp()).isNotNull();
+        String payload = dynamicEngine.buildPayload(template, context);
+
+        com.fasterxml.jackson.databind.JsonNode rootNode = new ObjectMapper().readTree(payload);
+        assertThat(rootNode.get("palletLpn").asText()).isEqualTo("PAL-FILTER-001");
+        assertThat(rootNode.get("grossWeightKg").asDouble()).isEqualTo(1020.0);
+        assertThat(rootNode.get("receivingLocation").asText()).isEqualTo("RCV-DOCK-02");
     }
 
     @Test
-    @DisplayName("Token Manager: Caches Bearer token and avoids redundant requests")
+    @DisplayName("Token Manager: Handles unreachable endpoint without simulated tokens")
     void testTokenManagerCaching() {
         WmsClientProperties props = new WmsClientProperties();
         props.setEnabled(true);
         props.setClientId("client-1");
         props.setClientSecret("secret-1");
 
-        WmsTokenManager tokenManager = new WmsTokenManager(props, resourceManager, new com.fasterxml.jackson.databind.ObjectMapper());
+        TokenManager tokenManager = new TokenManager(props, resourceManager, new ObjectMapper());
         String token1 = tokenManager.getBearerToken();
         String token2 = tokenManager.getBearerToken();
 
-        assertThat(token1).isNotNull();
-        assertThat(token1).isEqualTo(token2);
+        assertThat(token1).isNull();
+        assertThat(token2).isNull();
+        assertThat(tokenManager.getStatus().isHasToken()).isFalse();
     }
 
     @Test

@@ -23,5 +23,6 @@
         <module>common-logging</module>
         <module>common-audit</module>
         <module>common-industrial</module>
+        <module>common-software-client</module>
     </modules>
 </project>

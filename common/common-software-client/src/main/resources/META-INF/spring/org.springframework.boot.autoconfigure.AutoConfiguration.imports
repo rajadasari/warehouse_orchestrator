@@ -1,0 +1,7 @@
+com.company.warehouse.common.client.software.logging.HttpLoggingInterceptor
+com.company.warehouse.common.client.software.dynamic.DynamicPayloadEngine
+com.company.warehouse.common.client.software.dynamic.DynamicResponseExtractor
+com.company.warehouse.common.client.software.client.ClientConnectionProperties
+com.company.warehouse.common.client.software.auth.TokenManager
+com.company.warehouse.common.client.software.auth.AuthInterceptor
+com.company.warehouse.common.client.software.client.RestClientConfig

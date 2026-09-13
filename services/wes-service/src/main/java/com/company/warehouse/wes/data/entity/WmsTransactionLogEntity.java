@@ -55,6 +55,11 @@ public class WmsTransactionLogEntity {
     @Column(name = "payload", columnDefinition = "jsonb")
     private String payload = "{}";
 
+    @Builder.Default
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "response_payload", columnDefinition = "jsonb")
+    private String responsePayload = "{}";
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

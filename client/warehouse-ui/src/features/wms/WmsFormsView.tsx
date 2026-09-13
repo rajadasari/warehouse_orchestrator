@@ -10,8 +10,19 @@ import {
   ShieldCheck, 
   Box, 
   CheckCircle2, 
-  Clock
+  Clock,
+  Eye,
+  Code,
+  Copy,
+  Check,
+  X,
+  Server,
+  Layers
 } from 'lucide-react';
+import { 
+  resourceService, 
+  ResourceItem 
+} from '../../services/resourceService';
 import { 
   wmsService, 
   PalletPreAnnouncePayload, 
@@ -28,8 +39,7 @@ import {
   PalletInventoryItem, 
   PalletTypeItem, 
   ItemMasterItem, 
-  SkuMasterItem, 
-  PalletHandlingStrategyItem 
+  SkuMasterItem 
 } from '../../services/masterDataService';
 
 type WmsTabKey = 'pre-announce' | 'ordering' | 'history';
@@ -42,20 +52,36 @@ export const WmsFormsView: React.FC = () => {
   const [palletTypes, setPalletTypes] = useState<PalletTypeItem[]>([]);
   const [items, setItems] = useState<ItemMasterItem[]>([]);
   const [skus, setSkus] = useState<SkuMasterItem[]>([]);
-  const [strategies, setStrategies] = useState<PalletHandlingStrategyItem[]>([]);
   const [tokenStatus, setTokenStatus] = useState<WmsTokenStatus | null>(null);
+  const [wmsResources, setWmsResources] = useState<ResourceItem[]>([]);
+  const [preTargetResourceId, setPreTargetResourceId] = useState('');
 
-  // Pre-announce Form State (Matches wes.pallet table configuration)
+  const handleSelectWmsResource = async (resId: string) => {
+    setPreTargetResourceId(resId);
+    if (resId) {
+      try {
+        const st = await wmsService.getTokenStatus(resId);
+        setTokenStatus(st);
+      } catch {
+        // ignore
+      }
+    } else {
+      setTokenStatus(null);
+    }
+  };
+
+  // Pre-announce Form State (Clean, non-hardcoded states)
+  const [selectedPalletLpn, setSelectedPalletLpn] = useState('');
   const [preLpn, setPreLpn] = useState('');
-  const [prePalletTypeCode, setPrePalletTypeCode] = useState('EUR_WOOD');
+  const [prePalletTypeCode, setPrePalletTypeCode] = useState('');
   const [preItemCode, setPreItemCode] = useState('');
   const [preSkuCode, setPreSkuCode] = useState('');
-  const [preQuantity, setPreQuantity] = useState<number>(1000);
-  const [preUom, setPreUom] = useState('KG');
+  const [preQuantity, setPreQuantity] = useState<string>('');
+  const [preUom, setPreUom] = useState('');
   const [preLotNumber, setPreLotNumber] = useState('');
   const [preExpiryDate, setPreExpiryDate] = useState('');
-  const [preActualWeight, setPreActualWeight] = useState<number>(1025.0);
-  const [preSourceLocation, setPreSourceLocation] = useState('RCV-DOCK-01');
+  const [preActualWeight, setPreActualWeight] = useState<string>('');
+  const [preSourceLocation, setPreSourceLocation] = useState('');
   const [preSubmitting, setPreSubmitting] = useState(false);
   const [preResult, setPreResult] = useState<WmsPreAnnounceResult | null>(null);
   const [preError, setPreError] = useState<string | null>(null);
@@ -82,6 +108,32 @@ export const WmsFormsView: React.FC = () => {
   // Audit Logs State
   const [logs, setLogs] = useState<WmsTransactionLog[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [inspectedLog, setInspectedLog] = useState<WmsTransactionLog | null>(null);
+  const [copiedReq, setCopiedReq] = useState(false);
+  const [copiedRes, setCopiedRes] = useState(false);
+
+  const formatJson = (data: any) => {
+    if (!data) return '{}';
+    if (typeof data === 'string') {
+      try {
+        return JSON.stringify(JSON.parse(data), null, 2);
+      } catch {
+        return data;
+      }
+    }
+    return JSON.stringify(data, null, 2);
+  };
+
+  const copyToClipboard = (text: string, type: 'req' | 'res') => {
+    navigator.clipboard.writeText(text);
+    if (type === 'req') {
+      setCopiedReq(true);
+      setTimeout(() => setCopiedReq(false), 2000);
+    } else {
+      setCopiedRes(true);
+      setTimeout(() => setCopiedRes(false), 2000);
+    }
+  };
 
   // Initial Load
   useEffect(() => {
@@ -90,56 +142,82 @@ export const WmsFormsView: React.FC = () => {
 
   const loadInitialData = async () => {
     try {
-      const [pts, itms, sks, strats, plts, authSt] = await Promise.all([
+      const [pts, itms, sks, plts, resList] = await Promise.all([
         masterDataService.getPalletTypes().catch(() => []),
         masterDataService.getItems().catch(() => []),
         masterDataService.getSkus().catch(() => []),
-        masterDataService.getStrategies().catch(() => []),
         masterDataService.getPallets().catch(() => []),
-        wmsService.getTokenStatus().catch(() => null)
+        resourceService.getResources().catch(() => [])
       ]);
 
       setPalletTypes(pts || []);
       setItems(itms || []);
       setSkus(sks || []);
-      setStrategies(strats || []);
       setPallets(plts || []);
-      setTokenStatus(authSt);
 
-      // Pre-seed pre-announce defaults
-      resetPreAnnounceDefaults(pts, itms, sks, strats);
+      const filtered = (resList || []).filter((r: ResourceItem) =>
+        r.type?.toUpperCase() === 'WMS' ||
+        r.type?.toUpperCase() === 'SOFTWARE' ||
+        r.resourceId?.toUpperCase().includes('WMS')
+      );
+      setWmsResources(filtered);
+
+      const targetId = filtered.length > 0 ? filtered[0].resourceId : '';
+      setPreTargetResourceId(targetId);
+
+      if (targetId) {
+        const authSt = await wmsService.getTokenStatus(targetId).catch(() => null);
+        setTokenStatus(authSt);
+      }
+
+      // Pre-seed ordering defaults only (keep pre-announce form clean)
       resetOrderingDefaults(plts, itms, sks);
     } catch (e) {
       console.error('Error loading WMS form prerequisites:', e);
     }
   };
 
-  const resetPreAnnounceDefaults = (
-    pts: PalletTypeItem[] = palletTypes,
-    itms: ItemMasterItem[] = items,
-    sks: SkuMasterItem[] = skus,
-    strats: PalletHandlingStrategyItem[] = strategies
-  ) => {
-    const seq = Math.floor(100000 + Math.random() * 900000);
-    setPreLpn(`PLT-2026-${seq}`);
-    setPreLotNumber(`LOT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
-    const nextYear = new Date();
-    nextYear.setFullYear(nextYear.getFullYear() + 1);
-    setPreExpiryDate(nextYear.toISOString().split('T')[0]);
+  // Populate pre-announce form from real database pallet in inventory
+  const handleSelectExistingPallet = (lpn: string) => {
+    setSelectedPalletLpn(lpn);
+    if (!lpn) return;
+    const p = pallets.find(plt => plt.palletLpn === lpn);
+    if (!p) return;
 
-    if (pts.length > 0) setPrePalletTypeCode(pts[0].code);
-    if (itms.length > 0) {
-      setPreItemCode(itms[0].itemCode);
-      setPreUom(itms[0].baseUom || 'KG');
-    }
-    if (sks.length > 0) setPreSkuCode(sks[0].skuCode);
-    if (strats.length > 0 && strats[0].standardTotalQuantity) {
-      setPreQuantity(Number(strats[0].standardTotalQuantity));
-      if (strats[0].expectedTotalWeightKg) {
-        setPreActualWeight(Number(strats[0].expectedTotalWeightKg));
-      }
-    }
-    setPreSourceLocation('RCV-DOCK-01');
+    setPreLpn(p.palletLpn || '');
+    setPrePalletTypeCode(p.palletTypeCode || '');
+    setPreItemCode(p.itemCode || (p.items && p.items[0]?.itemCode) || '');
+    setPreSkuCode((p.items && p.items[0]?.skuCode) || '');
+
+    const qty = (p.items && p.items[0]?.totalQuantity) != null 
+      ? p.items[0].totalQuantity 
+      : (p.telemetry?.quantity || '');
+    setPreQuantity(qty !== '' ? String(qty) : '');
+
+    const uom = (p.items && p.items[0]?.baseUom) || p.materialBaseUom || '';
+    setPreUom(uom);
+
+    setPreLotNumber((p.items && p.items[0]?.lotNumber) || '');
+    setPreExpiryDate((p.items && p.items[0]?.expiryDate) || '');
+    setPreActualWeight(p.actualWeightKg != null ? String(p.actualWeightKg) : '');
+    setPreSourceLocation(p.currentLocation || '');
+    setPreResult(null);
+    setPreError(null);
+  };
+
+  // Clear pre-announce form to blank state
+  const handleClearPreAnnounceForm = () => {
+    setSelectedPalletLpn('');
+    setPreLpn('');
+    setPrePalletTypeCode('');
+    setPreItemCode('');
+    setPreSkuCode('');
+    setPreQuantity('');
+    setPreUom('');
+    setPreLotNumber('');
+    setPreExpiryDate('');
+    setPreActualWeight('');
+    setPreSourceLocation('');
     setPreResult(null);
     setPreError(null);
   };
@@ -195,21 +273,51 @@ export const WmsFormsView: React.FC = () => {
   // Handle Pre-Announce Submission
   const handleSubmitPreAnnounce = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPreSubmitting(true);
     setPreError(null);
     setPreResult(null);
 
+    if (!preTargetResourceId) {
+      setPreError('Please select a Target WMS Resource.');
+      return;
+    }
+    if (!preLpn.trim()) {
+      setPreError('Pallet LPN (Barcode / SSCC) is required.');
+      return;
+    }
+    if (!prePalletTypeCode.trim()) {
+      setPreError('Please select a Pallet Type.');
+      return;
+    }
+    if (!preSourceLocation.trim()) {
+      setPreError('Receiving Location / Staging Bay is required.');
+      return;
+    }
+
+    const numQty = parseFloat(preQuantity);
+    if (isNaN(numQty) || numQty <= 0) {
+      setPreError('Total Quantity must be a valid number greater than zero.');
+      return;
+    }
+
+    const numWeight = parseFloat(preActualWeight);
+    if (isNaN(numWeight) || numWeight <= 0) {
+      setPreError('Scale Weight must be a valid number greater than zero.');
+      return;
+    }
+
+    setPreSubmitting(true);
     const payload: PalletPreAnnouncePayload = {
       palletLpn: preLpn.trim(),
       palletTypeCode: prePalletTypeCode.trim(),
       itemCode: preItemCode.trim() || undefined,
       skuCode: preSkuCode.trim() || undefined,
-      quantity: Number(preQuantity),
-      uom: preUom.trim(),
+      quantity: numQty,
+      uom: preUom.trim() || 'KG',
       lotNumber: preLotNumber.trim() || undefined,
       expiryDate: preExpiryDate || undefined,
-      actualWeightKg: Number(preActualWeight),
-      sourceLocation: preSourceLocation.trim()
+      actualWeightKg: numWeight,
+      sourceLocation: preSourceLocation.trim(),
+      targetResourceId: preTargetResourceId
     };
 
     try {
@@ -364,8 +472,8 @@ export const WmsFormsView: React.FC = () => {
           </div>
           <button
             onClick={async () => {
-              await wmsService.refreshToken();
-              const s = await wmsService.getTokenStatus();
+              await wmsService.refreshToken(preTargetResourceId);
+              const s = await wmsService.getTokenStatus(preTargetResourceId);
               setTokenStatus(s);
             }}
             title="Refresh Token"
@@ -492,7 +600,7 @@ export const WmsFormsView: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => resetPreAnnounceDefaults()}
+                onClick={handleClearPreAnnounceForm}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -507,7 +615,7 @@ export const WmsFormsView: React.FC = () => {
                 }}
               >
                 <RotateCcw size={11} />
-                <span>Re-generate Defaults</span>
+                <span>Clear Form</span>
               </button>
             </div>
 
@@ -557,6 +665,193 @@ export const WmsFormsView: React.FC = () => {
               </div>
             )}
 
+            {/* Target WMS Resource Destination Selector */}
+            <div style={{
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-default)',
+              borderRadius: '8px',
+              padding: '14px',
+              borderLeft: '4px solid var(--color-primary-600)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px'
+            }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Server size={16} color="var(--color-primary-600)" />
+                  <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-primary)' }}>
+                    Target WMS Resource (System Destination)
+                  </span>
+                </div>
+                <span style={{
+                  fontSize: '10px',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                  color: 'var(--color-primary-600)',
+                  fontWeight: 600
+                }}>
+                  wes.resource
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '14px', alignItems: 'start' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '4px' }}>
+                    Select Target WMS Resource *
+                  </label>
+                  <select
+                    value={preTargetResourceId}
+                    onChange={e => handleSelectWmsResource(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-default)',
+                      backgroundColor: 'var(--bg-surface-subtle)',
+                      color: 'var(--text-primary)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <option value="">-- Select Target WMS Resource * --</option>
+                    {wmsResources.map((res: ResourceItem) => (
+                      <option key={res.id || res.resourceId} value={res.resourceId}>
+                        {res.name || res.resourceId} ({res.resourceId})
+                      </option>
+                    ))}
+                  </select>
+                  <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
+                    Select which WMS system this pallet should be dispatched to.
+                  </span>
+                </div>
+
+                {/* Selected Resource Live Details Card */}
+                {(() => {
+                  const selectedRes = wmsResources.find(r => r.resourceId === preTargetResourceId);
+                  const ip = selectedRes?.ip || selectedRes?.customProperties?.ip || '';
+                  const port = selectedRes?.customProperties?.port || '';
+                  const resolvedUrl = tokenStatus?.targetBaseUrl || (ip ? `http://${ip}${port ? ':' + port : ''}` : 'Not Configured');
+                  const hasToken = tokenStatus?.hasToken ?? false;
+
+                  return (
+                    <div style={{
+                      backgroundColor: 'var(--bg-surface-subtle)',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-default)',
+                      padding: '10px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '5px',
+                      fontSize: '11px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <strong style={{ color: 'var(--text-primary)', fontSize: '12px' }}>
+                            {selectedRes?.name || preTargetResourceId}
+                          </strong>
+                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                            [{preTargetResourceId}]
+                          </span>
+                        </div>
+                        <span style={{
+                          fontSize: '9.5px',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: (selectedRes?.status === 'ACTIVE' || !selectedRes) ? 'rgba(22, 163, 74, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                          color: (selectedRes?.status === 'ACTIVE' || !selectedRes) ? '#16A34A' : '#EF4444',
+                          fontWeight: 700
+                        }}>
+                          {selectedRes?.status || 'ACTIVE'}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '16px', marginTop: '2px', color: 'var(--text-secondary)' }}>
+                        <div>
+                          Host URL: <code style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{resolvedUrl}</code>
+                        </div>
+                        <div>
+                          Auth: <span style={{ color: hasToken ? '#16A34A' : 'var(--text-secondary)', fontWeight: 600 }}>
+                            {hasToken ? 'Bearer Active' : 'Token Ready'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '10.5px' }}>
+                        Endpoint URI: <code style={{ color: 'var(--color-primary-600)' }}>/api/v1/wms/pallets/pre-announce</code>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Auto-Populate from Real Inventory Pallet */}
+            <div style={{
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-default)',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 320px' }}>
+                <Layers size={16} color="var(--color-primary-600)" />
+                <span style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Load from Pallet Inventory:
+                </span>
+                <select
+                  value={selectedPalletLpn}
+                  onChange={e => handleSelectExistingPallet(e.target.value)}
+                  style={{
+                    flex: 1,
+                    padding: '6px 10px',
+                    borderRadius: '5px',
+                    border: '1px solid var(--border-default)',
+                    backgroundColor: 'var(--bg-surface-subtle)',
+                    color: 'var(--text-primary)',
+                    fontSize: '11.5px',
+                    fontFamily: 'monospace'
+                  }}
+                >
+                  <option value="">-- Choose Pallet (Optional) --</option>
+                  {pallets.map(p => (
+                    <option key={p.id} value={p.palletLpn}>
+                      {p.palletLpn} {p.palletTypeCode ? `[${p.palletTypeCode}]` : ''} ({p.status})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleClearPreAnnounceForm}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '5px 10px',
+                  borderRadius: '5px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid var(--border-default)',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer'
+                }}
+              >
+                <RotateCcw size={11} />
+                <span>Clear Form</span>
+              </button>
+            </div>
+
             {/* Section 1: Carrier & Identity */}
             <div style={{
               backgroundColor: 'var(--bg-surface)',
@@ -578,6 +873,7 @@ export const WmsFormsView: React.FC = () => {
                     required
                     value={preLpn}
                     onChange={e => setPreLpn(e.target.value)}
+                    placeholder="Enter Pallet Barcode / SSCC (e.g. PLT-001)"
                     style={{
                       width: '100%',
                       padding: '6px 8px',
@@ -612,14 +908,12 @@ export const WmsFormsView: React.FC = () => {
                       boxSizing: 'border-box'
                     }}
                   >
+                    <option value="">-- Select Pallet Type * --</option>
                     {palletTypes.map((pt: PalletTypeItem) => (
                       <option key={pt.id} value={pt.code}>
                         {pt.code} — {pt.name} (Tare: {pt.tareWeightKg}kg)
                       </option>
                     ))}
-                    {palletTypes.length === 0 && (
-                      <option value="EUR_WOOD">EUR_WOOD — Euro Pallet EPAL 1</option>
-                    )}
                   </select>
                 </div>
 
@@ -633,7 +927,7 @@ export const WmsFormsView: React.FC = () => {
                     required
                     value={preSourceLocation}
                     onChange={e => setPreSourceLocation(e.target.value)}
-                    placeholder="e.g. RCV-DOCK-01"
+                    placeholder="Enter Receiving Location (e.g. RCV-DOCK-01)"
                     style={{
                       width: '100%',
                       padding: '6px 8px',
@@ -671,7 +965,7 @@ export const WmsFormsView: React.FC = () => {
                       const c = e.target.value;
                       setPreItemCode(c);
                       const itm = items.find(i => i.itemCode === c);
-                      if (itm) setPreUom(itm.baseUom || 'KG');
+                      if (itm && itm.baseUom) setPreUom(itm.baseUom);
                     }}
                     style={{
                       width: '100%',
@@ -684,12 +978,12 @@ export const WmsFormsView: React.FC = () => {
                       boxSizing: 'border-box'
                     }}
                   >
+                    <option value="">-- Optional: Select Item / Material --</option>
                     {items.map((it: ItemMasterItem) => (
                       <option key={it.id} value={it.itemCode}>
                         {it.itemCode} — {it.name}
                       </option>
                     ))}
-                    {items.length === 0 && <option value="MAT-MILK-POWDER">MAT-MILK-POWDER</option>}
                   </select>
                 </div>
 
@@ -712,26 +1006,27 @@ export const WmsFormsView: React.FC = () => {
                       boxSizing: 'border-box'
                     }}
                   >
+                    <option value="">-- Optional: Select SKU --</option>
                     {skus.map((k: SkuMasterItem) => (
                       <option key={k.id} value={k.skuCode}>
                         {k.skuCode} ({k.packageType} - {k.unitsPerPackage})
                       </option>
                     ))}
-                    {skus.length === 0 && <option value="SKU-MILK-BAG25KG">SKU-MILK-BAG25KG</option>}
                   </select>
                 </div>
 
                 {/* Total Quantity */}
                 <div>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
-                    Total Quantity ({preUom}) *
+                    Total Quantity {preUom ? `(${preUom})` : ''} *
                   </label>
                   <input
                     type="number"
                     step="0.01"
                     required
                     value={preQuantity}
-                    onChange={e => setPreQuantity(parseFloat(e.target.value) || 0)}
+                    onChange={e => setPreQuantity(e.target.value)}
+                    placeholder="Enter total quantity"
                     style={{
                       width: '100%',
                       padding: '6px 8px',
@@ -754,7 +1049,7 @@ export const WmsFormsView: React.FC = () => {
                     type="text"
                     value={preLotNumber}
                     onChange={e => setPreLotNumber(e.target.value)}
-                    placeholder="e.g. LOT-2026-491"
+                    placeholder="Enter Batch / Lot Number"
                     style={{
                       width: '100%',
                       padding: '6px 8px',
@@ -801,7 +1096,8 @@ export const WmsFormsView: React.FC = () => {
                     step="0.1"
                     required
                     value={preActualWeight}
-                    onChange={e => setPreActualWeight(parseFloat(e.target.value) || 0)}
+                    onChange={e => setPreActualWeight(e.target.value)}
+                    placeholder="Enter scale weight in kg"
                     style={{
                       width: '100%',
                       padding: '6px 8px',
@@ -821,7 +1117,7 @@ export const WmsFormsView: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
               <button
                 type="button"
-                onClick={() => resetPreAnnounceDefaults()}
+                onClick={handleClearPreAnnounceForm}
                 style={{
                   padding: '8px 16px',
                   borderRadius: '6px',
@@ -833,7 +1129,7 @@ export const WmsFormsView: React.FC = () => {
                   cursor: 'pointer'
                 }}
               >
-                Reset
+                Clear Form
               </button>
 
               <button
@@ -1265,6 +1561,7 @@ export const WmsFormsView: React.FC = () => {
                     <th style={{ padding: '8px 12px' }}>WMS Reference ID</th>
                     <th style={{ padding: '8px 12px' }}>Status</th>
                     <th style={{ padding: '8px 12px' }}>Details</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'center' }}>Payload & Response</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1297,12 +1594,279 @@ export const WmsFormsView: React.FC = () => {
                       <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
                         {log.details || '—'}
                       </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <button
+                          onClick={() => setInspectedLog(log)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '3px 9px',
+                            borderRadius: '5px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                            color: 'var(--color-primary-600)',
+                            border: '1px solid rgba(37, 99, 235, 0.25)',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = 'var(--color-primary-600)';
+                            e.currentTarget.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.1)';
+                            e.currentTarget.style.color = 'var(--color-primary-600)';
+                          }}
+                        >
+                          <Eye size={12} />
+                          <span>Inspect</span>
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* PAYLOAD & RESPONSE INSPECTION MODAL */}
+      {inspectedLog && (
+        <div 
+          onClick={() => setInspectedLog(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '20px'
+          }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '900px',
+              maxWidth: '95vw',
+              height: '80vh',
+              maxHeight: '85vh',
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-default)',
+              borderRadius: '12px',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.35)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 20px',
+              borderBottom: '1px solid var(--border-default)',
+              backgroundColor: 'var(--bg-surface-subtle)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Code size={18} color="var(--color-primary-600)" />
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700 }}>
+                  WMS Transaction Audit: {inspectedLog.transactionType}
+                </h3>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  backgroundColor: inspectedLog.status === 'SUCCESS' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                  color: inspectedLog.status === 'SUCCESS' ? '#16A34A' : '#EF4444'
+                }}>
+                  {inspectedLog.status}
+                </span>
+              </div>
+              <button
+                onClick={() => setInspectedLog(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--text-secondary)',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  borderRadius: '4px'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Metadata Bar */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '16px',
+              padding: '10px 20px',
+              fontSize: '11.5px',
+              borderBottom: '1px solid var(--border-default)',
+              color: 'var(--text-secondary)',
+              backgroundColor: 'var(--bg-page)'
+            }}>
+              <div><strong>Timestamp:</strong> {new Date(inspectedLog.createdAt).toLocaleString()}</div>
+              <div><strong>Pallet LPN:</strong> <code style={{ fontWeight: 600 }}>{inspectedLog.palletLpn || '—'}</code></div>
+              <div><strong>Ref ID:</strong> <code style={{ fontWeight: 600, color: 'var(--color-primary-600)' }}>{inspectedLog.wmsReferenceId || '—'}</code></div>
+              <div><strong>Details:</strong> {inspectedLog.details || '—'}</div>
+            </div>
+
+            {/* Modal Body: Two-panel side-by-side JSON view */}
+            <div style={{
+              flex: 1,
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '14px',
+              padding: '16px 20px',
+              overflow: 'hidden'
+            }}>
+              {/* Request Payload */}
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                border: '1px solid var(--border-default)',
+                borderRadius: '8px',
+                overflow: 'hidden',
+                backgroundColor: 'var(--bg-page)'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderBottom: '1px solid var(--border-default)',
+                  backgroundColor: 'var(--bg-surface-subtle)'
+                }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600 }}>Request Payload (Sent to WMS)</span>
+                  <button
+                    onClick={() => copyToClipboard(formatJson(inspectedLog.payload), 'req')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      padding: '3px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: 'var(--bg-surface)',
+                      border: '1px solid var(--border-default)',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {copiedReq ? <Check size={11} color="#16A34A" /> : <Copy size={11} />}
+                    <span>{copiedReq ? 'Copied' : 'Copy JSON'}</span>
+                  </button>
+                </div>
+                <pre style={{
+                  margin: 0,
+                  padding: '12px',
+                  flex: 1,
+                  overflowY: 'auto',
+                  fontSize: '11.5px',
+                  fontFamily: 'monospace',
+                  lineHeight: '1.45',
+                  color: 'var(--text-primary)',
+                  backgroundColor: 'var(--bg-surface)'
+                }}>
+                  {formatJson(inspectedLog.payload)}
+                </pre>
+              </div>
+
+              {/* Response Payload */}
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                border: '1px solid var(--border-default)',
+                borderRadius: '8px',
+                overflow: 'hidden',
+                backgroundColor: 'var(--bg-page)'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderBottom: '1px solid var(--border-default)',
+                  backgroundColor: 'var(--bg-surface-subtle)'
+                }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600 }}>Response Payload (From WMS)</span>
+                  <button
+                    onClick={() => copyToClipboard(formatJson(inspectedLog.responsePayload), 'res')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      padding: '3px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: 'var(--bg-surface)',
+                      border: '1px solid var(--border-default)',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {copiedRes ? <Check size={11} color="#16A34A" /> : <Copy size={11} />}
+                    <span>{copiedRes ? 'Copied' : 'Copy JSON'}</span>
+                  </button>
+                </div>
+                <pre style={{
+                  margin: 0,
+                  padding: '12px',
+                  flex: 1,
+                  overflowY: 'auto',
+                  fontSize: '11.5px',
+                  fontFamily: 'monospace',
+                  lineHeight: '1.45',
+                  color: 'var(--text-primary)',
+                  backgroundColor: 'var(--bg-surface)'
+                }}>
+                  {formatJson(inspectedLog.responsePayload)}
+                </pre>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              padding: '10px 20px',
+              borderTop: '1px solid var(--border-default)',
+              backgroundColor: 'var(--bg-surface-subtle)'
+            }}>
+              <button
+                onClick={() => setInspectedLog(null)}
+                style={{
+                  padding: '6px 16px',
+                  borderRadius: '6px',
+                  backgroundColor: 'var(--color-primary-600)',
+                  color: '#fff',
+                  border: 'none',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

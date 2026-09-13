@@ -45,6 +45,7 @@ public class InboundPalletController {
     @PostMapping("/validate")
     public ResponseEntity<ValidationResult> validateInboundPallet(
             @Valid @RequestBody InboundPalletSubmissionRequest request) {
+        log.debug("POST /api/v1/wes/pallets/inbound/validate: Validating pallet LPN='{}'", request.getPalletLpn());
         PalletValidationContext context = new PalletValidationContext(request);
         ValidationResult result = validationCoordinator.validate(request, context);
         return ResponseEntity.ok(result);
@@ -57,12 +58,15 @@ public class InboundPalletController {
     @PostMapping("/submit")
     public ResponseEntity<InboundExecutionResponse> submitInboundPallet(
             @Valid @RequestBody InboundPalletSubmissionRequest request) {
+        log.info("POST /api/v1/wes/pallets/inbound/submit: Submitting pallet LPN='{}', loadType='{}'",
+                request.getPalletLpn(), request.getLoadType());
         PalletValidationContext context = new PalletValidationContext(request);
         ValidationResult validationResult = validationCoordinator.validate(request, context);
 
         InboundExecutionResponse response = processRouter.routeAndTrigger(context, validationResult);
 
         if (response.getOutcome() == ValidationOutcome.REJECT) {
+            log.warn("POST /api/v1/wes/pallets/inbound/submit: Pallet LPN='{}' REJECTED", request.getPalletLpn());
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(response);
         }
 
@@ -74,6 +78,7 @@ public class InboundPalletController {
      */
     @GetMapping("/tasks/{taskId}")
     public ResponseEntity<WesTaskEntity> getTaskById(@PathVariable UUID taskId) {
+        log.debug("GET /api/v1/wes/pallets/inbound/tasks/{}: Fetching task details", taskId);
         return taskRepository.findById(taskId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -87,6 +92,7 @@ public class InboundPalletController {
             @PathVariable UUID taskId,
             @PathVariable int sequence,
             @RequestBody(required = false) CompleteOperationRequest request) {
+        log.info("POST /api/v1/wes/pallets/inbound/tasks/{}/operations/{}/complete", taskId, sequence);
         String resultPayload = request != null ? request.getOutputResult() : "{}";
         String allocatedLocation = request != null ? request.getAllocatedLocation() : null;
 
@@ -103,6 +109,7 @@ public class InboundPalletController {
             @PathVariable int sequence,
             @RequestBody(required = false) FailOperationRequest request) {
         String reason = request != null && request.getReason() != null ? request.getReason() : "Operation failed";
+        log.warn("POST /api/v1/wes/pallets/inbound/tasks/{}/operations/{}/fail: reason='{}'", taskId, sequence, reason);
         WesTaskEntity updatedTask = taskTrackingEngine.failOperation(taskId, sequence, reason);
         return ResponseEntity.ok(updatedTask);
     }

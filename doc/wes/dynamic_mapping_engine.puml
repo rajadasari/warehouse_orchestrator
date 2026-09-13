@@ -1,0 +1,58 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+
+title Dynamic Payload & Mapping Engine - Evaluation Sequence
+
+participant "WmsRestAdapter" as Client
+participant "DynamicPayloadEngine" as Engine
+database "ConcurrentHashMap\n(templateCache)" as Cache
+participant "ObjectMapper / Jackson AST" as Jackson
+database "ApiIntegrationMappingRepository" as Repo
+
+Client -> Engine: findActiveMapping(targetResourceId, operationType)
+Engine -> Repo: findByTargetResourceIdAndOperationTypeAndActiveTrue()
+Repo --> Engine: Optional<ApiIntegrationMappingEntity>
+Engine --> Client: mappingEntity
+
+Client -> Engine: buildPayload(templateJson, contextMap)
+activate Engine
+
+Engine -> Cache: get(hashKey)
+alt Cache Miss
+    Engine -> Jackson: readTree(templateJson)
+    Jackson --> Engine: rootTemplate (JsonNode AST)
+    Engine -> Cache: put(hashKey, rootTemplate)
+else Cache Hit
+    Cache --> Engine: cached AST
+end
+
+Engine -> Jackson: valueToTree(contextMap)
+Jackson --> Engine: contextNode (JsonNode AST)
+
+Engine -> Engine: evaluateNode(clonedAST, contextNode)
+
+loop Recursive AST Traversal
+    alt ObjectNode / ArrayNode
+        Engine -> Engine: Traverse child elements
+    else TextNode with {{ token }}
+        alt Single Token: {{ path | default }}
+            Engine -> Engine: resolveValue(path, default, contextNode)\n(Preserves Numeric / Boolean types)
+        else String Interpolation: "LPN: {{ pallet.palletLpn }}"
+            Engine -> Engine: Regex Matcher replacement
+        end
+        alt Built-in Function: fn.now, fn.uuid, fn.epochMillis
+            Engine -> Engine: evaluateFunction(fnName)
+        end
+    end
+end
+
+Engine -> Jackson: writeValueAsString(evaluatedNode)
+Jackson --> Engine: resolvedJsonString
+Engine --> Client: String payload JSON
+deactivate Engine
+
+@enduml

@@ -3,12 +3,14 @@ package com.company.warehouse.wes.api.controller;
 import com.company.warehouse.wes.api.dto.MasterDataOverviewDto;
 import com.company.warehouse.wes.business.service.MasterDataService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/wes/overview")
 @RequiredArgsConstructor
@@ -19,6 +21,7 @@ public class MasterDataOverviewController {
 
     @GetMapping
     public ResponseEntity<MasterDataOverviewDto> getOverview() {
+        log.debug("GET /api/v1/wes/overview: Fetching master data overview metrics");
         return ResponseEntity.ok(masterDataService.getOverviewMetrics());
     }
 }

@@ -15,8 +15,6 @@ import {
   ArrowUpDown, 
   AlertCircle,
   Warehouse,
-  Radio,
-  Thermometer,
   MapPin,
   Barcode,
   Sparkles,
@@ -91,6 +89,7 @@ export const PalletInventoryView: React.FC = () => {
 
   // Form Fields for Full Pallet Entry in wes.pallet
   const [inboundLpn, setInboundLpn] = useState('');
+  const [inboundPalletAlias, setInboundPalletAlias] = useState('');
   const [inboundLoadType, setInboundLoadType] = useState<'NO_LOAD' | 'MATERIAL' | 'MATERIAL_WITH_SKU' | 'PALLET_STACK'>('MATERIAL_WITH_SKU');
   const [selectedStrategyId, setSelectedStrategyId] = useState('');
   const [selectedPalletTypeId, setSelectedPalletTypeId] = useState('');
@@ -295,6 +294,7 @@ export const PalletInventoryView: React.FC = () => {
     }
 
     setInboundLpn(newLpn);
+    setInboundPalletAlias('');
     setInboundLotNumber(newLot);
     setInboundRfidTag(newRfid);
     setInboundExpiryDate(newExpiry);
@@ -334,6 +334,7 @@ export const PalletInventoryView: React.FC = () => {
 
       const createdPallet = await masterDataService.createPalletFromStrategy({
         palletLpn: `PLT-2026-${seq}`,
+        palletAlias: `ALIAS-${String(seq).slice(-4)}`,
         strategyId: activeStrat?.id,
         palletTypeId: activeType?.id,
         skuId: activeSku?.id,
@@ -381,7 +382,7 @@ export const PalletInventoryView: React.FC = () => {
 
     // 2. Custom attributes defined in database for PALLET entity
     customAttrDefs
-      .filter(def => def.targetEntity === 'PALLET' && def.isActive !== false)
+      .filter(def => def.targetEntity === 'PALLET' && def.isActive !== false && def.attributeCode !== 'pallet_alias' && def.attributeCode !== 'palletAlias')
       .forEach(def => {
         keysMap.set(def.attributeCode, { code: def.attributeCode, label: def.label || def.attributeCode });
       });
@@ -390,6 +391,7 @@ export const PalletInventoryView: React.FC = () => {
     pallets.forEach(plt => {
       if (plt.customAttributes && typeof plt.customAttributes === 'object') {
         Object.keys(plt.customAttributes).forEach(k => {
+          if (k === 'pallet_alias' || k === 'palletAlias') return;
           if (!keysMap.has(k)) {
             const humanLabel = k
               .replace(/_/g, ' ')
@@ -415,6 +417,7 @@ export const PalletInventoryView: React.FC = () => {
   const allColumnsList = useMemo<ColumnDefinition[]>(() => {
     const standard: ColumnDefinition[] = [
       { key: 'palletLpn', label: 'Pallet LPN', group: 'Standard', required: true },
+      { key: 'pallet_alias', label: 'Pallet Alias', group: 'Standard', required: false },
       { key: 'loadType', label: 'Load Type', group: 'Standard', required: false },
       { key: 'strategy', label: 'Handling Strategy', group: 'Standard', required: false },
       { key: 'palletType', label: 'Pallet Type', group: 'Standard', required: false },
@@ -430,7 +433,6 @@ export const PalletInventoryView: React.FC = () => {
       { key: 'status', label: 'Status', group: 'Standard', required: false },
       { key: 'actualWeight', label: 'Actual Weight', group: 'Standard', required: false },
       { key: 'mixStatus', label: 'Mix Status', group: 'Standard', required: false },
-      { key: 'telemetry', label: 'IoT Telemetry', group: 'Standard', required: false },
     ];
 
     const custom: ColumnDefinition[] = palletCustomAttrKeys.map(attr => ({
@@ -486,7 +488,7 @@ export const PalletInventoryView: React.FC = () => {
   };
 
   const showCoreOnly = () => {
-    const coreKeys = new Set(['palletLpn', 'loadType', 'strategy', 'itemCode', 'skuCode', 'quantity', 'currentLocation', 'status', 'actions']);
+    const coreKeys = new Set(['palletLpn', 'pallet_alias', 'loadType', 'strategy', 'itemCode', 'skuCode', 'quantity', 'currentLocation', 'status', 'actions']);
     const updated: Record<string, boolean> = {};
     allColumnsList.forEach(col => {
       updated[col.key] = coreKeys.has(col.key);
@@ -500,7 +502,7 @@ export const PalletInventoryView: React.FC = () => {
   const showCustomOnly = () => {
     const updated: Record<string, boolean> = {};
     allColumnsList.forEach(col => {
-      if (col.key === 'palletLpn' || col.key === 'status' || col.key === 'actions' || col.key.startsWith('attr_')) {
+      if (col.key === 'palletLpn' || col.key === 'pallet_alias' || col.key === 'status' || col.key === 'actions' || col.key.startsWith('attr_')) {
         updated[col.key] = true;
       } else {
         updated[col.key] = false;
@@ -660,10 +662,11 @@ export const PalletInventoryView: React.FC = () => {
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         const itemsStr = (plt.items || []).map(i => `${i.skuCode || ''} ${i.itemName || ''} ${i.lotNumber || ''}`).join(' ').toLowerCase();
-        const telemetryStr = JSON.stringify(plt.telemetry || {}).toLowerCase();
+        const aliasStr = String((plt as any).pallet_alias || (plt as any).palletAlias || plt.customAttributes?.pallet_alias || plt.customAttributes?.palletAlias || '').toLowerCase();
         const customAttrsStr = JSON.stringify(plt.customAttributes || {}).toLowerCase();
         const matchesGlobal = 
           plt.palletLpn.toLowerCase().includes(q) ||
+          aliasStr.includes(q) ||
           (plt.loadType && plt.loadType.toLowerCase().includes(q)) ||
           (plt.itemCode && plt.itemCode.toLowerCase().includes(q)) ||
           (firstItem?.itemCode && firstItem.itemCode.toLowerCase().includes(q)) ||
@@ -677,7 +680,6 @@ export const PalletInventoryView: React.FC = () => {
           (plt.currentLocation && plt.currentLocation.toLowerCase().includes(q)) ||
           plt.status.toLowerCase().includes(q) ||
           itemsStr.includes(q) ||
-          telemetryStr.includes(q) ||
           customAttrsStr.includes(q);
         if (!matchesGlobal) return false;
       }
@@ -694,6 +696,10 @@ export const PalletInventoryView: React.FC = () => {
         if (!rawVal) continue;
         const val = rawVal.toLowerCase().trim();
         if (key === 'palletLpn' && !plt.palletLpn.toLowerCase().includes(val)) return false;
+        if (key === 'pallet_alias') {
+          const aliasVal = String((plt as any).pallet_alias || (plt as any).palletAlias || plt.customAttributes?.pallet_alias || plt.customAttributes?.palletAlias || '').toLowerCase();
+          if (!aliasVal.includes(val)) return false;
+        }
         if (key === 'loadType' && !(plt.loadType || 'MATERIAL_WITH_SKU').toLowerCase().includes(val)) return false;
         if (key === 'strategy' && !(plt.strategyCode || '').toLowerCase().includes(val) && !(plt.strategyName || '').toLowerCase().includes(val)) return false;
         if (key === 'palletType' && !(plt.palletTypeCode || '').toLowerCase().includes(val) && !(plt.palletTypeName || '').toLowerCase().includes(val)) return false;
@@ -717,10 +723,6 @@ export const PalletInventoryView: React.FC = () => {
             if (!str.includes(val)) return false;
           }
         }
-        if (key === 'telemetry') {
-          const tStr = JSON.stringify(plt.telemetry || {}).toLowerCase();
-          if (!tStr.includes(val)) return false;
-        }
         if (key.startsWith('attr_')) {
           const attrCode = key.replace('attr_', '');
           const propVal = plt.customAttributes?.[attrCode];
@@ -743,6 +745,9 @@ export const PalletInventoryView: React.FC = () => {
         const attrCode = sortConfig.key.replace('attr_', '');
         valA = a.customAttributes?.[attrCode] ?? '';
         valB = b.customAttributes?.[attrCode] ?? '';
+      } else if (sortConfig.key === 'pallet_alias') {
+        valA = (a as any).pallet_alias || (a as any).palletAlias || a.customAttributes?.pallet_alias || a.customAttributes?.palletAlias || '';
+        valB = (b as any).pallet_alias || (b as any).palletAlias || b.customAttributes?.pallet_alias || b.customAttributes?.palletAlias || '';
       } else if (sortConfig.key === 'itemCode') {
         valA = a.itemCode || firstItemA?.itemCode || '';
         valB = b.itemCode || firstItemB?.itemCode || '';
@@ -805,6 +810,7 @@ export const PalletInventoryView: React.FC = () => {
     try {
       const createdPallet = await masterDataService.createPalletFromStrategy({
         palletLpn: inboundLpn.trim() || undefined,
+        palletAlias: inboundPalletAlias.trim() || undefined,
         loadType: inboundLoadType,
         strategyId: (inboundLoadType === 'NO_LOAD' || inboundLoadType === 'PALLET_STACK') ? undefined : (selectedStrategyId || undefined),
         palletTypeId: selectedPalletTypeId || undefined,
@@ -819,7 +825,10 @@ export const PalletInventoryView: React.FC = () => {
         lotNumber: inboundLotNumber.trim() || undefined,
         expiryDate: inboundExpiryDate || undefined,
         rfidTag: inboundRfidTag.trim() || undefined,
-        customAttributes: inboundLoadType === 'PALLET_STACK' ? { pallet_stack_count: inboundPalletStackCount } : undefined
+        customAttributes: {
+          ...(inboundLoadType === 'PALLET_STACK' ? { pallet_stack_count: inboundPalletStackCount } : {}),
+          ...(inboundPalletAlias.trim() ? { pallet_alias: inboundPalletAlias.trim() } : {})
+        }
       });
 
       setPallets(prev => [createdPallet, ...prev]);
@@ -1596,6 +1605,13 @@ export const PalletInventoryView: React.FC = () => {
                   </div>
                 </th>
               )}
+              {isColVisible('pallet_alias') && (
+                <th onClick={() => handleSort('pallet_alias')} style={{ padding: '8px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    Pallet Alias {getSortIcon('pallet_alias')}
+                  </div>
+                </th>
+              )}
               {isColVisible('loadType') && (
                 <th onClick={() => handleSort('loadType')} style={{ padding: '8px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -1701,11 +1717,6 @@ export const PalletInventoryView: React.FC = () => {
                   </div>
                 </th>
               )}
-              {isColVisible('telemetry') && (
-                <th style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                  IoT Telemetry
-                </th>
-              )}
               {/* Dynamic Custom Property Columns */}
               {palletCustomAttrKeys.map(attr => {
                 const colKey = `attr_${attr.code}`;
@@ -1749,6 +1760,7 @@ export const PalletInventoryView: React.FC = () => {
                     style={{ position: 'sticky', left: 0, zIndex: 12, backgroundColor: 'var(--bg-surface-subtle)', borderRight: '1px solid var(--border-default)' }}
                   />
                 )}
+                {isColVisible('pallet_alias') && <ColumnFilterCell colKey="pallet_alias" placeholder="Filter alias..." />}
                 {isColVisible('loadType') && <ColumnFilterCell colKey="loadType" placeholder="Filter load..." />}
                 {isColVisible('strategy') && <ColumnFilterCell colKey="strategy" placeholder="Filter strategy..." />}
                 {isColVisible('palletType') && <ColumnFilterCell colKey="palletType" placeholder="Filter pallet type..." />}
@@ -1764,7 +1776,6 @@ export const PalletInventoryView: React.FC = () => {
                 {isColVisible('status') && <ColumnFilterCell colKey="status" placeholder="Filter status..." />}
                 {isColVisible('actualWeight') && <ColumnFilterCell colKey="actualWeight" placeholder="Filter weight..." />}
                 {isColVisible('mixStatus') && <ColumnFilterCell colKey="mixStatus" placeholder="Filter mix..." />}
-                {isColVisible('telemetry') && <ColumnFilterCell colKey="telemetry" placeholder="Filter telemetry..." />}
                 {palletCustomAttrKeys.map(attr => {
                   const colKey = `attr_${attr.code}`;
                   if (!isColVisible(colKey)) return null;
@@ -1873,6 +1884,31 @@ export const PalletInventoryView: React.FC = () => {
                             </span>
                           )}
                         </div>
+                      </td>
+                    )}
+
+                    {/* 2. Pallet Alias */}
+                    {isColVisible('pallet_alias') && (
+                      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                        {(() => {
+                          const aliasVal = (plt as any).pallet_alias || (plt as any).palletAlias || plt.customAttributes?.pallet_alias || plt.customAttributes?.palletAlias;
+                          return aliasVal ? (
+                            <span style={{
+                              fontWeight: 600,
+                              fontFamily: 'monospace',
+                              color: 'var(--text-primary)',
+                              fontSize: '11.5px',
+                              backgroundColor: 'var(--bg-surface-subtle)',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border-default)'
+                            }}>
+                              {aliasVal}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-disabled)', fontSize: '11px' }}>—</span>
+                          );
+                        })()}
                       </td>
                     )}
 
@@ -2125,49 +2161,7 @@ export const PalletInventoryView: React.FC = () => {
                       </td>
                     )}
 
-                    {/* 17. Telemetry */}
-                    {isColVisible('telemetry') && (
-                      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                        {plt.telemetry && Object.keys(plt.telemetry).length > 0 ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {plt.telemetry.temp_c !== undefined && (
-                              <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '2px',
-                                fontSize: '10.5px',
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                backgroundColor: 'rgba(59, 130, 246, 0.08)',
-                                color: 'var(--color-primary-600)',
-                                border: '1px solid rgba(59, 130, 246, 0.2)'
-                              }}>
-                                <Thermometer size={10} />
-                                {plt.telemetry.temp_c}°C
-                              </span>
-                            )}
-                            {plt.telemetry.rfid_epc && (
-                              <span title={plt.telemetry.rfid_epc} style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '2px',
-                                fontSize: '10px',
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                backgroundColor: 'var(--bg-surface-subtle)',
-                                color: 'var(--text-secondary)',
-                                border: '1px solid var(--border-default)'
-                              }}>
-                                <Radio size={9} />
-                                RFID
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span style={{ color: 'var(--text-disabled)', fontSize: '11px' }}>—</span>
-                        )}
-                      </td>
-                    )}
+
 
                     {/* Dynamic Custom Property Cells */}
                     {palletCustomAttrKeys.map(attr => {
@@ -2571,6 +2565,7 @@ export const PalletInventoryView: React.FC = () => {
                         onClick={() => {
                           const seq = Math.floor(100000 + Math.random() * 900000);
                           setInboundLpn(`PLT-2026-${seq}`);
+                          setInboundPalletAlias(`ALIAS-${String(seq).slice(-4)}`);
                           setInboundRfidTag(`3034257BF400${String(seq).padStart(12, '0')}`);
                         }}
                         title="Generate fresh LPN barcode & RFID tag"
@@ -2586,6 +2581,31 @@ export const PalletInventoryView: React.FC = () => {
                         <RotateCcw size={12} />
                       </button>
                     </div>
+                  </div>
+
+                  {/* Pallet Alias */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '3px' }}>
+                      Pallet Alias (Secondary Identifier)
+                    </label>
+                    <input
+                      type="text"
+                      value={inboundPalletAlias}
+                      onChange={e => setInboundPalletAlias(e.target.value)}
+                      placeholder="e.g. ALIAS-4420"
+                      style={{
+                        width: '100%',
+                        padding: '6px 8px',
+                        borderRadius: '5px',
+                        border: '1px solid var(--border-default)',
+                        backgroundColor: 'var(--bg-surface)',
+                        color: 'var(--text-primary)',
+                        fontSize: '11.5px',
+                        fontFamily: 'monospace',
+                        outline: 'none',
+                        boxSizing: 'border-box'
+                      }}
+                    />
                   </div>
 
                   {/* Handling Strategy (Only for MATERIAL and MATERIAL_WITH_SKU) */}

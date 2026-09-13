@@ -47,7 +47,6 @@ public class ProcessTriggerRouter {
                 .palletLpn(lpn)
                 .loadType(context.getLoadType() != null ? context.getLoadType() : "MATERIAL_WITH_SKU")
                 .palletType(context.getResolvedPalletType())
-                .item(context.getResolvedItem())
                 .status(palletStatus)
                 .currentLocation(context.getSourceLocation())
                 .actualWeightKg(context.getActualWeightKg())

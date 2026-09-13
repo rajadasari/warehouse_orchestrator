@@ -1,5 +1,7 @@
 package com.company.warehouse.wes.business.resource;
 
+import com.company.warehouse.common.client.software.model.ResourceConfigProvider;
+import com.company.warehouse.common.client.software.model.ResourceConnectionConfig;
 import com.company.warehouse.wes.api.dto.resource.ResourceRequestDto;
 import com.company.warehouse.wes.api.dto.resource.ResourceResponseDto;
 import com.company.warehouse.wes.data.entity.ResourceEntity;
@@ -19,7 +21,7 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ResourceManager {
+public class ResourceManager implements ResourceConfigProvider {
 
     private final ResourceRepository resourceRepository;
     private final ObjectMapper objectMapper;
@@ -184,6 +186,8 @@ public class ResourceManager {
             ip = String.valueOf(props.get("ip"));
         } else if (props.containsKey("ipAddress")) {
             ip = String.valueOf(props.get("ipAddress"));
+        } else if (props.containsKey("host")) {
+            ip = String.valueOf(props.get("host"));
         }
 
         return ResourceResponseDto.builder()

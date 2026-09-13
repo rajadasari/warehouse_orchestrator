@@ -42,17 +42,23 @@ public class WmsFormsController {
      */
     @PostMapping("/pre-announce")
     public ResponseEntity<WmsPreAnnounceResult> preAnnouncePallet(@RequestBody PalletPreAnnounceCommand command) {
-        log.info("Received WMS Form Pre-Announce for Pallet LPN: {}", command.getPalletLpn());
+        log.info("Received WMS Form Pre-Announce for Pallet LPN: {}, Target Resource: {}",
+                command.getPalletLpn(), command.getTargetResourceId());
         WmsPreAnnounceResult result = wmsSpi.preAnnouncePallet(command);
+
+        String targetResource = command.getTargetResourceId() != null && !command.getTargetResourceId().trim().isEmpty()
+                ? command.getTargetResourceId().trim()
+                : "LOGIQS-AMBIENT-WMS";
 
         saveTransactionLog(
                 "PRE_ANNOUNCE",
                 command.getPalletLpn(),
-                null,
+                targetResource,
                 result.getPreAnnounceId(),
                 result.isSuccessful() ? "SUCCESS" : "FAILED",
-                result.isSuccessful() ? "Pre-announce acknowledged by WMS" : result.getErrorMessage(),
-                command
+                result.isSuccessful() ? "Pre-announce acknowledged by WMS [" + targetResource + "]" : result.getErrorMessage(),
+                command,
+                result
         );
 
         return ResponseEntity.ok(result);
@@ -73,7 +79,8 @@ public class WmsFormsController {
                 result.getWmsOrderId(),
                 result.isSuccessful() ? "SUCCESS" : "FAILED",
                 result.isSuccessful() ? "WMS Order Number: " + result.getOrderNumber() : result.getErrorMessage(),
-                command
+                command,
+                result
         );
 
         return ResponseEntity.ok(result);
@@ -94,7 +101,8 @@ public class WmsFormsController {
                 result.getReservationId(),
                 result.isSuccessful() ? "SUCCESS" : "FAILED",
                 result.isSuccessful() ? "Reservation confirmed for order " + command.getWmsOrderId() : result.getErrorMessage(),
-                command
+                command,
+                result
         );
 
         return ResponseEntity.ok(result);
@@ -115,7 +123,8 @@ public class WmsFormsController {
                 command.getWmsOrderId(),
                 result.isSuccessful() ? "SUCCESS" : "FAILED",
                 result.isSuccessful() ? "Released to Spur: " + result.getOutboundStageSpur() : result.getErrorMessage(),
-                command
+                command,
+                result
         );
 
         return ResponseEntity.ok(result);
@@ -136,10 +145,13 @@ public class WmsFormsController {
             String refId,
             String status,
             String details,
-            Object payloadObj
+            Object requestPayloadObj,
+            Object responsePayloadObj
     ) {
         try {
-            String jsonPayload = objectMapper.writeValueAsString(payloadObj);
+            String jsonRequest = requestPayloadObj != null ? objectMapper.writeValueAsString(requestPayloadObj) : "{}";
+            String jsonResponse = responsePayloadObj != null ? objectMapper.writeValueAsString(responsePayloadObj) : "{}";
+
             WmsTransactionLogEntity logEntity = WmsTransactionLogEntity.builder()
                     .transactionType(type)
                     .palletLpn(lpn)
@@ -147,7 +159,8 @@ public class WmsFormsController {
                     .wmsReferenceId(refId)
                     .status(status)
                     .details(details)
-                    .payload(jsonPayload)
+                    .payload(jsonRequest)
+                    .responsePayload(jsonResponse)
                     .build();
             transactionLogRepository.save(logEntity);
         } catch (Exception e) {

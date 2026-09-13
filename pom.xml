@@ -116,6 +116,11 @@
                 <artifactId>common-industrial</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.company.warehouse</groupId>
+                <artifactId>common-software-client</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- Curated Third-Party Libraries -->
             <dependency>

@@ -4,6 +4,7 @@ import com.company.warehouse.wes.api.dto.CreateSkuMasterRequest;
 import com.company.warehouse.wes.api.dto.SkuMasterDto;
 import com.company.warehouse.wes.business.service.MasterDataService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/wes/skus")
 @RequiredArgsConstructor
@@ -29,21 +31,25 @@ public class SkuMasterController {
 
     @GetMapping
     public ResponseEntity<List<SkuMasterDto>> getAllSkus() {
+        log.debug("GET /api/v1/wes/skus: Fetching all SKUs");
         return ResponseEntity.ok(masterDataService.getAllSkus());
     }
 
     @PostMapping
     public ResponseEntity<SkuMasterDto> createSku(@RequestBody CreateSkuMasterRequest request) {
+        log.info("POST /api/v1/wes/skus: Creating SKU code='{}', packageType='{}'", request.getSkuCode(), request.getPackageType());
         return ResponseEntity.status(HttpStatus.CREATED).body(masterDataService.createSku(request));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<SkuMasterDto> updateSku(@PathVariable UUID id, @RequestBody CreateSkuMasterRequest request) {
+        log.info("PUT /api/v1/wes/skus/{}: Updating SKU code='{}'", id, request.getSkuCode());
         return ResponseEntity.ok(masterDataService.updateSku(id, request));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteSku(@PathVariable UUID id) {
+        log.info("DELETE /api/v1/wes/skus/{}: Deleting SKU", id);
         masterDataService.deleteSku(id);
         return ResponseEntity.noContent().build();
     }

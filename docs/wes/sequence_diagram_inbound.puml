@@ -1,0 +1,88 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+
+title Inbound Ingestion & Outbound Pipeline Sequence Flow
+
+actor "Operator / Terminal" as Op
+participant "InboundPalletController" as Ctrl
+participant "PalletValidationCoordinator" as ValCoord
+participant "ProcessTriggerRouter" as Router
+participant "OperationCollectionResolver" as OpRes
+participant "TaskTrackingEngine" as TaskEng
+participant "PalletFlowCoordinator" as FlowCoord
+participant "PalletFlowStepHandler\n(PreAnnounce, Order, Reserve, Outbound)" as StepHandler
+participant "WmsRestAdapter" as Adapter
+participant "DynamicPayloadEngine" as DynEng
+participant "WmsTokenManager" as TokenMgr
+participant "Third-Party WMS" as ExtWMS
+database "PostgreSQL (wes)" as DB
+
+Op -> Ctrl: POST /api/v1/wes/pallets/inbound/submit\n(InboundPalletSubmissionRequest)
+activate Ctrl
+
+Ctrl -> ValCoord: validate(request, context)
+activate ValCoord
+
+ValCoord -> ValCoord: Tier 1: Identity & Existence\n(ItemMaster, PalletType, Duplicate LPN)
+alt Tier 1 Fails (e.g. Duplicate Active LPN)
+    ValCoord --> Ctrl: ValidationResult (REJECT)
+    Ctrl --> Op: HTTP 422 Unprocessable Entity (Rejection Details)
+end
+
+ValCoord -> ValCoord: Tier 2: Physical Capacity & Constraints\n(Weight Rating, Dimensions, SKU Compatibility)
+ValCoord -> ValCoord: Tier 3: Quality & Compliance Policies\n(Allergen Segregation, Batch Expiry, Lot Tracking)
+ValCoord --> Ctrl: ValidationResult (ACCEPTED or WARNING)
+deactivate ValCoord
+
+Ctrl -> Router: routeAndTrigger(context, validationResult)
+activate Router
+
+Router -> DB: INSERT wes.pallet & wes.pallet_item\n(Status: RECEIVED / RECEIVED_WARNING)
+
+Router -> OpRes: resolveOperations(context, validationResult)
+activate OpRes
+OpRes --> Router: List<PlannedOperation> (Seq 1..N)
+deactivate OpRes
+
+Router -> TaskEng: createAndStartTask(context, plannedOps)
+activate TaskEng
+TaskEng -> DB: INSERT wes.wes_task & wes.task_operation\n(Task: IN_PROGRESS, Op #1: IN_PROGRESS)
+TaskEng --> Router: WesTaskEntity
+deactivate TaskEng
+
+opt Outbound or Cross-Dock Workflow
+    Router -> FlowCoord: executeFlow(palletFlowContext)
+    activate FlowCoord
+
+    loop For each Step in Pipeline [PreAnnounce -> CreateOrder -> Reserve -> SendOutbound]
+        FlowCoord -> StepHandler: execute(context)
+        activate StepHandler
+        StepHandler -> Adapter: preAnnouncePallet() / createOrder() ...
+        activate Adapter
+        Adapter -> DynEng: findActiveMapping() & buildPayload()
+        Adapter -> TokenMgr: getBearerToken(targetResourceId)
+        Adapter -> ExtWMS: POST /api/endpoint (JSON Payload)
+        ExtWMS --> Adapter: HTTP 200 OK (Response JSON)
+        Adapter --> StepHandler: WmsResult (Success)
+        deactivate Adapter
+        StepHandler -> TaskEng: completeOperation(taskId, seq, resultPayload)
+        TaskEng -> DB: UPDATE task_operation (COMPLETED)\nUPDATE next task_operation (IN_PROGRESS)
+        StepHandler --> FlowCoord: true
+        deactivate StepHandler
+    end
+    FlowCoord --> Router: Flow Completed (Success)
+    deactivate FlowCoord
+end
+
+Router --> Ctrl: InboundExecutionResponse (ACCEPTED / WARNINGS)
+deactivate Router
+
+Ctrl --> Op: HTTP 201 Created\n{taskNumber, palletLpn, outcome, warnings}
+deactivate Ctrl
+
+@enduml

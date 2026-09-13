@@ -6,6 +6,7 @@ import { MasterDataView } from './features/masterdata/MasterDataView';
 import { PalletInventoryView } from './features/inventory/PalletInventoryView';
 import { ResourceConfigView } from './features/resources/ResourceConfigView';
 import { WmsFormsView } from './features/wms/WmsFormsView';
+import { ApiMappingManagerView } from './features/mappings/ApiMappingManagerView';
 
 interface AuthSession {
   isLoggedIn: boolean;
@@ -16,7 +17,7 @@ interface AuthSession {
 
 export const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [activeNav, setActiveNav] = useState<'users' | 'configuration' | 'master-data' | 'resource-config' | 'inventory' | 'custom-fields' | 'wms-forms'>('wms-forms');
+  const [activeNav, setActiveNav] = useState<'users' | 'configuration' | 'master-data' | 'resource-config' | 'api-mappings' | 'inventory' | 'custom-fields' | 'wms-forms'>('wms-forms');
   const [session, setSession] = useState<AuthSession>(() => {
     const saved = localStorage.getItem('warehouse_session');
     if (saved) {
@@ -100,6 +101,7 @@ export const App: React.FC = () => {
       }}>
         {(activeNav === 'configuration' || activeNav === 'master-data') && <MasterDataView />}
         {activeNav === 'resource-config' && <ResourceConfigView />}
+        {activeNav === 'api-mappings' && <ApiMappingManagerView />}
         {activeNav === 'users' && <UserManagementView />}
         {(activeNav === 'inventory' || activeNav === 'custom-fields') && <PalletInventoryView />}
         {activeNav === 'wms-forms' && <WmsFormsView />}

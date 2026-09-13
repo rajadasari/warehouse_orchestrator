@@ -118,7 +118,6 @@ public class PalletExecutionService {
                         ? request.getActualWeightKg()
                         : palletType.getTareWeightKg();
                 pallet.setHandlingStrategy(null);
-                pallet.setItem(null);
                 pallet.setMixedPallet(false);
                 break;
             }
@@ -134,7 +133,6 @@ public class PalletExecutionService {
                         ? request.getActualWeightKg()
                         : palletType.getTareWeightKg().multiply(BigDecimal.valueOf(stackCount));
                 pallet.setHandlingStrategy(null);
-                pallet.setItem(null);
                 pallet.setMixedPallet(false);
                 break;
             }
@@ -161,7 +159,6 @@ public class PalletExecutionService {
                         : palletType.getTareWeightKg().add(materialQty).add(BigDecimal.valueOf(random.nextDouble() * 2.0 - 1.0));
 
                 pallet.setHandlingStrategy(strategy);
-                pallet.setItem(item);
 
                 String lotNumber = request.getLotNumber() != null && !request.getLotNumber().trim().isEmpty()
                         ? request.getLotNumber().trim()
@@ -218,7 +215,6 @@ public class PalletExecutionService {
                                 .add(BigDecimal.valueOf(random.nextDouble() * 2.0 - 1.0));
 
                 pallet.setHandlingStrategy(strategy);
-                pallet.setItem(item);
 
                 String lotNumber = request.getLotNumber() != null && !request.getLotNumber().trim().isEmpty()
                         ? request.getLotNumber().trim()
@@ -358,10 +354,10 @@ public class PalletExecutionService {
                 }).collect(Collectors.toList())
                 : Collections.emptyList();
 
-        UUID directItemId = entity.getItem() != null ? entity.getItem().getId() : (entity.getItems() != null && !entity.getItems().isEmpty() && entity.getItems().get(0).getItem() != null ? entity.getItems().get(0).getItem().getId() : null);
-        String directItemCode = entity.getItem() != null ? entity.getItem().getItemCode() : (entity.getItems() != null && !entity.getItems().isEmpty() && entity.getItems().get(0).getItem() != null ? entity.getItems().get(0).getItem().getItemCode() : null);
-        String directItemName = entity.getItem() != null ? entity.getItem().getName() : (entity.getItems() != null && !entity.getItems().isEmpty() && entity.getItems().get(0).getItem() != null ? entity.getItems().get(0).getItem().getName() : null);
-        String directUom = entity.getItem() != null ? entity.getItem().getBaseUom() : (entity.getItems() != null && !entity.getItems().isEmpty() && entity.getItems().get(0).getItem() != null ? entity.getItems().get(0).getItem().getBaseUom() : null);
+        UUID directItemId = entity.getItems() != null && !entity.getItems().isEmpty() && entity.getItems().get(0).getItem() != null ? entity.getItems().get(0).getItem().getId() : null;
+        String directItemCode = entity.getItems() != null && !entity.getItems().isEmpty() && entity.getItems().get(0).getItem() != null ? entity.getItems().get(0).getItem().getItemCode() : null;
+        String directItemName = entity.getItems() != null && !entity.getItems().isEmpty() && entity.getItems().get(0).getItem() != null ? entity.getItems().get(0).getItem().getName() : null;
+        String directUom = entity.getItems() != null && !entity.getItems().isEmpty() && entity.getItems().get(0).getItem() != null ? entity.getItems().get(0).getItem().getBaseUom() : null;
 
         return PalletDto.builder()
                 .id(entity.getId())

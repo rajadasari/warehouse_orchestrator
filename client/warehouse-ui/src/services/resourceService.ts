@@ -93,11 +93,53 @@ export interface WmsAuthStatus {
   targetBaseUrl?: string;
   authEndpoint?: string;
   headerFormat?: string;
+  isSimulated?: boolean;
+  lastError?: string;
+  lastStatusCode?: number;
+  resourceId?: string;
 }
 
-export async function testWmsAuthApi(): Promise<{ success: boolean; token: string; status: WmsAuthStatus; message: string }> {
-  const res = await fetch('/api/v1/wes/wms/auth/token', { method: 'POST' });
-  return handleResponse<{ success: boolean; token: string; status: WmsAuthStatus; message: string }>(res);
+export interface TestAuthConnectionPayload {
+  resourceId?: string;
+  baseUrl?: string;
+  tokenPath?: string;
+  clientId?: string;
+  clientSecret?: string;
+}
+
+export async function testAuthConnectionApi(payload: TestAuthConnectionPayload): Promise<{
+  success: boolean;
+  token?: string;
+  status?: WmsAuthStatus;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch('/api/v1/wes/wms/auth/test-connection', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  return handleResponse<{ success: boolean; token?: string; status?: WmsAuthStatus; message: string; error?: string }>(res);
+}
+
+export async function testWmsAuthApi(resourceId?: string): Promise<{ success: boolean; token?: string; status?: WmsAuthStatus; message: string; error?: string }> {
+  const url = resourceId 
+    ? `/api/v1/wes/wms/auth/token?resourceId=${encodeURIComponent(resourceId)}` 
+    : '/api/v1/wes/wms/auth/token';
+  const res = await fetch(url, { method: 'POST' });
+  return handleResponse<{ success: boolean; token?: string; status?: WmsAuthStatus; message: string; error?: string }>(res);
+}
+
+export async function authorizeResourceApi(resourceId: string): Promise<{ success: boolean; token?: string; status?: WmsAuthStatus; message?: string; error?: string }> {
+  const res = await fetch(`${BASE_URL}/${encodeURIComponent(resourceId)}/authorize`, { method: 'POST' });
+  return handleResponse<{ success: boolean; token?: string; status?: WmsAuthStatus; message?: string; error?: string }>(res);
+}
+
+export async function getResourceTokenStatusApi(resourceId: string): Promise<WmsAuthStatus> {
+  const res = await fetch(`${BASE_URL}/${encodeURIComponent(resourceId)}/token-status`);
+  return handleResponse<WmsAuthStatus>(res);
 }
 
 export const resourceService = {
@@ -107,5 +149,10 @@ export const resourceService = {
   createResource: createResourceApi,
   updateResource: updateResourceApi,
   deleteResource: deleteResourceApi,
-  testWmsAuth: testWmsAuthApi
+  testWmsAuth: testWmsAuthApi,
+  testAuthConnection: testAuthConnectionApi,
+  authorizeResource: authorizeResourceApi,
+  getResourceTokenStatus: getResourceTokenStatusApi
 };
+
+

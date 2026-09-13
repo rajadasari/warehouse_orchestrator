@@ -36,6 +36,14 @@ export default defineConfig({
           });
         }
       },
+      '/swagger-ui': {
+        target: process.env.WES_SERVICE_URL || 'http://127.0.0.1:8086',
+        changeOrigin: true
+      },
+      '/v3/api-docs': {
+        target: process.env.WES_SERVICE_URL || 'http://127.0.0.1:8086',
+        changeOrigin: true
+      },
       '/api': {
         target: process.env.GATEWAY_URL || 'http://127.0.0.1:8080',
         changeOrigin: true

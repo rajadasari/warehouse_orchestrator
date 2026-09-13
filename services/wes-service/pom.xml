@@ -43,6 +43,10 @@
             <groupId>com.company.warehouse</groupId>
             <artifactId>common-industrial</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.company.warehouse</groupId>
+            <artifactId>common-software-client</artifactId>
+        </dependency>
 
         <!-- Spring Boot Starters -->
         <dependency>
@@ -60,6 +64,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.6.0</version>
         </dependency>
 
         <!-- gRPC Server & Client Starter -->

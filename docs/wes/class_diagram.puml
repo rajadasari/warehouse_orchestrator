@@ -1,0 +1,285 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam classAttributeIconSize 0
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+skinparam ArrowColor #2C3E50
+skinparam ClassBorderColor #34495E
+
+title Warehouse Execution System (WES) - Core Domain & Architecture Class Diagram
+
+package "com.company.warehouse.wes.api.controller" {
+    class InboundPalletController {
+        - validationCoordinator: PalletValidationCoordinator
+        - processRouter: ProcessTriggerRouter
+        - taskRepository: WesTaskRepository
+        - taskTrackingEngine: TaskTrackingEngine
+        + validateInboundPallet(request: InboundPalletSubmissionRequest): ResponseEntity<ValidationResult>
+        + submitInboundPallet(request: InboundPalletSubmissionRequest): ResponseEntity<InboundExecutionResponse>
+        + getTaskById(taskId: UUID): ResponseEntity<WesTaskEntity>
+        + completeOperation(taskId: UUID, seq: int, req: CompleteOperationRequest): ResponseEntity<WesTaskEntity>
+        + failOperation(taskId: UUID, seq: int, req: FailOperationRequest): ResponseEntity<WesTaskEntity>
+    }
+
+    class PalletInventoryController {
+        - palletExecutionService: PalletExecutionService
+        + getAllPallets(): ResponseEntity<List<PalletDto>>
+        + createInboundPallet(request: CreateInboundPalletRequest): ResponseEntity<PalletDto>
+        + getPalletProcessLogs(id: UUID): ResponseEntity<List<PalletProcessLogDto>>
+        + recordProcessLog(id: UUID, req: RecordProcessLogRequest): ResponseEntity<PalletProcessLogDto>
+    }
+
+    class DynamicMappingController {
+        - mappingRepository: ApiIntegrationMappingRepository
+        - dynamicEngine: DynamicPayloadEngine
+        - resourceManager: ResourceManager
+        - tokenManager: WmsTokenManager
+        + getMappings(resourceId: String, opType: String): ResponseEntity<List<ApiIntegrationMappingEntity>>
+        + createMapping(entity: ApiIntegrationMappingEntity): ResponseEntity<ApiIntegrationMappingEntity>
+        + updateMapping(id: UUID, entity: ApiIntegrationMappingEntity): ResponseEntity<ApiIntegrationMappingEntity>
+        + deleteMapping(id: UUID): ResponseEntity<Void>
+        + getFieldDictionary(): ResponseEntity<Map<String, Object>>
+        + previewPayload(req: PreviewRequest): ResponseEntity<Map<String, Object>>
+        + testRunDispatch(req: TestRunRequest): ResponseEntity<Map<String, Object>>
+    }
+
+    class WmsFormsController {
+        - wmsSpi: WmsIntegrationSpi
+        - transactionLogRepository: WmsTransactionLogRepository
+        - objectMapper: ObjectMapper
+        + preAnnouncePallet(command: PalletPreAnnounceCommand): ResponseEntity<WmsPreAnnounceResult>
+        + createOrder(command: CreateOrderCommand): ResponseEntity<WmsOrderResult>
+        + reserveOrder(command: ReserveOrderCommand): ResponseEntity<WmsReserveResult>
+        + sendToOutbound(command: SendToOutboundCommand): ResponseEntity<WmsOutboundResult>
+        + getTransactionLogs(): ResponseEntity<List<WmsTransactionLogEntity>>
+    }
+}
+
+package "com.company.warehouse.wes.business.validation" {
+    interface PalletSubValidator {
+        + getTier(): ValidationTier
+        + getOrder(): int
+        + supports(context: PalletValidationContext): boolean
+        + validate(context: PalletValidationContext, result: ValidationResult): void
+    }
+
+    class PalletValidationCoordinator {
+        - subValidators: List<PalletSubValidator>
+        + validate(request: InboundPalletSubmissionRequest, context: PalletValidationContext): ValidationResult
+        - executeTier(tier: ValidationTier, context: PalletValidationContext, result: ValidationResult): void
+    }
+
+    class ItemMasterExistenceValidator implements PalletSubValidator
+    class PalletLpnDuplicateValidator implements PalletSubValidator
+    class PalletTypeExistenceValidator implements PalletSubValidator
+    class PalletWeightCapacityValidator implements PalletSubValidator
+    class SkuItemCompatibilityValidator implements PalletSubValidator
+    class AllergenSegregationValidator implements PalletSubValidator
+    class BatchExpiryPolicyValidator implements PalletSubValidator
+    class PalletLotTrackingValidator implements PalletSubValidator
+
+    class PalletValidationContext {
+        - palletLpn: String
+        - itemCode: String
+        - skuCode: String
+        - palletTypeCode: String
+        - inboundType: String
+        - quantity: BigDecimal
+        - actualWeightKg: BigDecimal
+        - sourceLocation: String
+        - lotNumber: String
+        - expiryDate: LocalDate
+        - customAttributes: Map<String, Object>
+        - resolvedItem: ItemMasterEntity
+        - resolvedSku: SkuMasterEntity
+        - resolvedPalletType: PalletTypeMasterEntity
+    }
+
+    class ValidationResult {
+        - errors: List<ValidationMessage>
+        - warnings: List<ValidationMessage>
+        - infos: List<ValidationMessage>
+        - outcome: ValidationOutcome
+        + addReject(code: String, msg: String, field: String): void
+        + addWarning(code: String, msg: String, field: String): void
+        + addInfo(code: String, msg: String, field: String): void
+        + isRejected(): boolean
+    }
+}
+
+package "com.company.warehouse.wes.business.process" {
+    class ProcessTriggerRouter {
+        - operationResolver: OperationCollectionResolver
+        - taskTrackingEngine: TaskTrackingEngine
+        - palletRepository: PalletRepository
+        - palletFlowCoordinator: PalletFlowCoordinator
+        + routeAndTrigger(ctx: PalletValidationContext, res: ValidationResult): InboundExecutionResponse
+    }
+
+    class PalletFlowCoordinator {
+        - stepHandlers: List<PalletFlowStepHandler>
+        + executeFlow(context: PalletFlowContext): boolean
+    }
+
+    interface PalletFlowStepHandler {
+        + getOperationType(): TaskOperationType
+        + execute(context: PalletFlowContext): boolean
+    }
+
+    class WmsPreAnnounceStepHandler implements PalletFlowStepHandler
+    class WmsCreateOrderStepHandler implements PalletFlowStepHandler
+    class WmsReserveOrderStepHandler implements PalletFlowStepHandler
+    class WmsSendToOutboundStepHandler implements PalletFlowStepHandler
+
+    class OperationCollectionResolver {
+        + resolveOperations(ctx: PalletValidationContext, res: ValidationResult): List<PlannedOperation>
+    }
+
+    class TaskTrackingEngine {
+        - taskRepository: WesTaskRepository
+        - operationRepository: TaskOperationRepository
+        - palletRepository: PalletRepository
+        + createAndStartTask(ctx: PalletValidationContext, ops: List<PlannedOperation>): WesTaskEntity
+        + completeOperation(taskId: UUID, seq: int, result: String, loc: String): WesTaskEntity
+        + failOperation(taskId: UUID, seq: int, reason: String): WesTaskEntity
+    }
+}
+
+package "com.company.warehouse.wes.business.dynamic" {
+    class DynamicPayloadEngine {
+        - objectMapper: ObjectMapper
+        - mappingRepository: ApiIntegrationMappingRepository
+        - templateCache: Map<String, JsonNode>
+        + findActiveMapping(targetResourceId: String, opType: String): Optional<ApiIntegrationMappingEntity>
+        + buildPayload(templateJson: String, context: Map<String, Object>): String
+        + buildHeaders(headersJson: String, context: Map<String, Object>): Map<String, String>
+        + invalidateCache(): void
+    }
+}
+
+package "com.company.warehouse.wes.infrastructure.client.wms" {
+    interface WmsIntegrationSpi {
+        + preAnnouncePallet(command: PalletPreAnnounceCommand): WmsPreAnnounceResult
+        + createOrder(command: CreateOrderCommand): WmsOrderResult
+        + reserveOrder(command: ReserveOrderCommand): WmsReserveResult
+        + sendToOutbound(command: SendToOutboundCommand): WmsOutboundResult
+    }
+
+    class WmsRestAdapter implements WmsIntegrationSpi {
+        - wmsRestClient: RestClient
+        - properties: WmsClientProperties
+        - mapper: WmsPayloadMapper
+        - tokenManager: WmsTokenManager
+        - dynamicEngine: DynamicPayloadEngine
+        - resourceManager: ResourceManager
+    }
+
+    class WmsTokenManager {
+        - properties: WmsClientProperties
+        - resourceManager: ResourceManager
+        - objectMapper: ObjectMapper
+        - tokenCache: ConcurrentHashMap<String, TokenCacheEntry>
+        - lock: ReentrantLock
+        + getBearerToken(resourceId: String): String
+        + forceRefreshToken(resourceId: String): String
+        + resolveBaseUrl(resourceId: String): String
+    }
+}
+
+package "com.company.warehouse.wes.data.entity" {
+    class PalletEntity {
+        - id: UUID
+        - palletLpn: String
+        - handlingStrategy: PalletHandlingStrategyEntity
+        - palletType: PalletTypeMasterEntity
+        - loadType: String
+        - status: String
+        - currentLocation: String
+        - isMixedPallet: boolean
+        - actualWeightKg: BigDecimal
+        - customAttributes: String
+        - items: List<PalletItemEntity>
+        - version: int
+    }
+
+    class PalletItemEntity {
+        - id: UUID
+        - pallet: PalletEntity
+        - item: ItemMasterEntity
+        - sku: SkuMasterEntity
+        - packageCount: int
+        - totalQuantity: BigDecimal
+        - lotNumber: String
+        - serialNumber: String
+        - expiryDate: LocalDate
+    }
+
+    class WesTaskEntity {
+        - id: UUID
+        - taskNumber: String
+        - taskType: String
+        - palletLpn: String
+        - status: String
+        - currentOperationSeq: int
+        - sourceLocation: String
+        - allocatedLocation: String
+        - submittedBy: String
+        - customAttributes: String
+        - operations: List<TaskOperationEntity>
+    }
+
+    class TaskOperationEntity {
+        - id: UUID
+        - task: WesTaskEntity
+        - sequence: int
+        - operationType: String
+        - handlerType: String
+        - status: String
+        - inputPayload: String
+        - outputResult: String
+        - errorMessage: String
+    }
+
+    class ApiIntegrationMappingEntity {
+        - id: UUID
+        - mappingCode: String
+        - name: String
+        - operationType: String
+        - targetResourceId: String
+        - httpMethod: String
+        - endpointUrl: String
+        - headersTemplate: String
+        - payloadTemplate: String
+        - active: boolean
+    }
+
+    class WmsTransactionLogEntity {
+        - id: UUID
+        - transactionType: String
+        - palletLpn: String
+        - orderReference: String
+        - wmsReferenceId: String
+        - status: String
+        - payload: String
+        - responsePayload: String
+    }
+}
+
+' Relationships
+InboundPalletController --> PalletValidationCoordinator
+InboundPalletController --> ProcessTriggerRouter
+InboundPalletController --> TaskTrackingEngine
+ProcessTriggerRouter --> OperationCollectionResolver
+ProcessTriggerRouter --> TaskTrackingEngine
+ProcessTriggerRouter --> PalletFlowCoordinator
+PalletFlowCoordinator o-- PalletFlowStepHandler
+PalletValidationCoordinator o-- PalletSubValidator
+WmsPreAnnounceStepHandler --> WmsIntegrationSpi
+WmsPreAnnounceStepHandler --> TaskTrackingEngine
+WmsRestAdapter --> DynamicPayloadEngine
+WmsRestAdapter --> WmsTokenManager
+PalletEntity "1" *-- "0..*" PalletItemEntity
+WesTaskEntity "1" *-- "1..*" TaskOperationEntity
+@enduml

@@ -173,6 +173,8 @@ export interface PalletInventorySubItem {
 export interface PalletInventoryItem {
   id: string;
   palletLpn: string;
+  palletAlias?: string;
+  pallet_alias?: string;
   loadType?: 'NO_LOAD' | 'MATERIAL' | 'MATERIAL_WITH_SKU' | 'PALLET_STACK';
   strategyId?: string;
   strategyCode: string;
@@ -189,7 +191,7 @@ export interface PalletInventoryItem {
   isMixedPallet: boolean;
   mixedPallet?: boolean;
   actualWeightKg?: number;
-  telemetry: Record<string, any>;
+  telemetry?: Record<string, any>;
   customAttributes?: Record<string, any>;
   items: PalletInventorySubItem[];
   createdAt?: string;
@@ -197,6 +199,8 @@ export interface PalletInventoryItem {
 
 export interface CreateInboundPalletPayload {
   palletLpn?: string;
+  palletAlias?: string;
+  pallet_alias?: string;
   loadType?: 'NO_LOAD' | 'MATERIAL' | 'MATERIAL_WITH_SKU' | 'PALLET_STACK';
   strategyId?: string;
   palletTypeId?: string;

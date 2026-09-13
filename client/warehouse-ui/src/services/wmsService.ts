@@ -9,6 +9,7 @@ export interface PalletPreAnnouncePayload {
   expiryDate?: string;
   actualWeightKg?: number;
   sourceLocation?: string;
+  targetResourceId?: string;
 }
 
 export interface WmsPreAnnounceResult {
@@ -70,17 +71,21 @@ export interface WmsTransactionLog {
   wmsReferenceId?: string;
   status: string;
   details?: string;
-  payload?: string;
+  payload?: any;
+  responsePayload?: any;
   createdAt: string;
 }
 
 export interface WmsTokenStatus {
+  resourceId?: string;
   hasToken: boolean;
   tokenPreview?: string;
-  endpointUrl: string;
+  endpointUrl?: string;
+  targetBaseUrl?: string;
+  authEndpoint?: string;
   expiresAt?: string;
-  remainingSeconds: number;
-  requiresRefresh: boolean;
+  remainingSeconds?: number;
+  requiresRefresh?: boolean;
 }
 
 const BASE_URL = '/api/v1/wes/wms';
@@ -138,7 +143,7 @@ export const wmsService = {
     return res.json();
   },
 
-  // Transactions Audit Log
+  // Transactions Audit Logs
   getTransactions: async (): Promise<WmsTransactionLog[]> => {
     const res = await fetch(`${BASE_URL}/transactions`);
     if (!res.ok) {
@@ -148,16 +153,18 @@ export const wmsService = {
   },
 
   // Token Diagnostics
-  getTokenStatus: async (): Promise<WmsTokenStatus> => {
-    const res = await fetch(`${BASE_URL}/auth/status`);
+  getTokenStatus: async (resourceId?: string): Promise<WmsTokenStatus> => {
+    const query = resourceId ? `?resourceId=${encodeURIComponent(resourceId)}` : '';
+    const res = await fetch(`${BASE_URL}/auth/status${query}`);
     if (!res.ok) {
       throw new Error(`Failed to get auth status: HTTP ${res.status}`);
     }
     return res.json();
   },
 
-  refreshToken: async (): Promise<any> => {
-    const res = await fetch(`${BASE_URL}/auth/refresh`, { method: 'POST' });
+  refreshToken: async (resourceId?: string): Promise<any> => {
+    const query = resourceId ? `?resourceId=${encodeURIComponent(resourceId)}` : '';
+    const res = await fetch(`${BASE_URL}/auth/refresh${query}`, { method: 'POST' });
     if (!res.ok) {
       throw new Error(`Failed to refresh token: HTTP ${res.status}`);
     }

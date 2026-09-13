@@ -9,7 +9,8 @@ import {
   Boxes,
   SlidersHorizontal,
   Server,
-  Send
+  Send,
+  Network
 } from 'lucide-react';
 
 interface SideNavBarProps {
@@ -238,6 +239,32 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
             <Server size={16} color={getIconColor(activeItem === 'resource-config')} />
             <span style={{ flex: 1 }}>Resource Config</span>
             {activeItem === 'resource-config' && (
+              <span style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                backgroundColor: isLight ? '#153d77' : 'var(--color-primary-500)'
+              }} />
+            )}
+          </button>
+
+          <button
+            onClick={() => onSelectNav && onSelectNav('api-mappings')}
+            style={getNavButtonStyle(activeItem === 'api-mappings')}
+            onMouseEnter={(e) => {
+              if (activeItem !== 'api-mappings') {
+                e.currentTarget.style.backgroundColor = isLight ? 'rgba(255, 255, 255, 0.14)' : 'var(--bg-surface-subtle)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (activeItem !== 'api-mappings') {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }
+            }}
+          >
+            <Network size={16} color={getIconColor(activeItem === 'api-mappings')} />
+            <span style={{ flex: 1 }}>API Mapper</span>
+            {activeItem === 'api-mappings' && (
               <span style={{
                 width: '6px',
                 height: '6px',

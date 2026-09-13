@@ -53,10 +53,6 @@ public class PalletEntity {
     @JoinColumn(name = "pallet_type_id", nullable = false)
     private PalletTypeMasterEntity palletType;
 
-    @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "item_id")
-    private ItemMasterEntity item;
-
     @Builder.Default
     @Column(name = "load_type", nullable = false, length = 30)
     private String loadType = "MATERIAL_WITH_SKU";

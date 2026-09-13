@@ -23,4 +23,5 @@ public class PalletPreAnnounceCommand {
     private LocalDate expiryDate;
     private BigDecimal actualWeightKg;
     private String sourceLocation;
+    private String targetResourceId;
 }

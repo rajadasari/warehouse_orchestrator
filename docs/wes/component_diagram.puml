@@ -1,0 +1,92 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+skinparam componentStyle uml2
+skinparam roundCorner 8
+skinparam shadowing false
+
+title Warehouse Execution System (WES) - Component Architecture (ISA-95 & Hexagonal)
+
+package "Level 4: Enterprise / WMS Boundary" {
+    [Third-Party WMS\n(SAP EWM / Manhattan / Logiqs)] as ExtWMS
+    [Enterprise ERP] as ERP
+}
+
+package "Level 3: Warehouse Execution System (wes-service)" {
+    
+    package "Inbound Adapters (Primary / Driving)" {
+        [InboundPalletController\n(REST Ingestion API)] as InboundCtrl
+        [DynamicMappingController\n(REST Mapping API)] as MappingCtrl
+        [WmsFormsController\n(REST Form Dispatcher)] as FormsCtrl
+        [PalletInventoryController\n(REST Inventory API)] as PalletCtrl
+        [gRPC MasterData Server\n(Inter-service RPC)] as GrpcServer
+    }
+
+    package "Core Business Execution & Domain Logic" {
+        [PalletValidationCoordinator\n(3-Tier Engine)] as ValCoord
+        [ProcessTriggerRouter\n(Routing & Ingestion)] as TrigRouter
+        [OperationCollectionResolver\n(Dynamic Route Planner)] as OpResolver
+        [TaskTrackingEngine\n(Task & Op State Machine)] as TaskEngine
+        [PalletFlowCoordinator\n(Sequential Process Pipeline)] as FlowCoord
+        [DynamicPayloadEngine\n(Template Interpolator & Cache)] as DynEngine
+        [MasterDataService\n(Master Data Authority)] as MDS
+        [PalletExecutionService\n(Inventory Lifecycle)] as PES
+    }
+
+    package "Outbound Adapters (Secondary / Driven)" {
+        interface "WmsIntegrationSpi" as WmsSPI
+        [WmsRestAdapter] as RestAdapter
+        [WmsTokenManager\n(OAuth2 Token Cache)] as TokenMgr
+        [WmsHttpLoggingInterceptor\n(Audit Stream)] as HttpLogger
+        [Spring Data JPA Repositories] as JpaRepos
+    }
+
+    database "PostgreSQL Database\n(Schema: wes)" {
+        folder "Tables" {
+            [wes.pallet]
+            [wes.pallet_item]
+            [wes.wes_task]
+            [wes.task_operation]
+            [wes.pallet_process_log]
+            [wes.wms_transaction_log]
+            [wes.api_integration_mapping]
+            [wes.resource]
+            [wes.item_master]
+            [wes.sku_master]
+        }
+    }
+}
+
+package "Level 2: Warehouse Control System (WCS) & Automation" {
+    [PLC / Conveyor Controller] as PLC
+    [AS/RS Crane System] as ASRS
+    [Weight Scale & Dimensioner] as Scale
+    [Handheld Scanners / Forklift Terminals] as Terminals
+}
+
+' Interactions
+Terminals --> InboundCtrl : Submit Pallet Scan
+Scale --> InboundCtrl : Certified Scale Weight
+ERP --> GrpcServer : Catalog Sync
+
+InboundCtrl --> ValCoord : 1. Validate (Tier 1..3)
+InboundCtrl --> TrigRouter : 2. Route & Ingest
+TrigRouter --> OpResolver : Resolve Operations
+TrigRouter --> TaskEngine : Create & Start Task
+TrigRouter --> FlowCoord : (If Outbound/Transfer) Trigger Flow
+FlowCoord --> WmsSPI : Execute Step Handlers
+WmsSPI <|.. RestAdapter
+RestAdapter --> DynEngine : Apply Dynamic Templates
+RestAdapter --> TokenMgr : Fetch/Cache Bearer Token
+RestAdapter --> HttpLogger : Intercept & Mask
+HttpLogger --> ExtWMS : HTTP/REST Calls
+PLC <-- TaskEngine : Operation Callbacks (Conveyor/Crane)
+
+TaskEngine --> JpaRepos
+TrigRouter --> JpaRepos
+PES --> JpaRepos
+MDS --> JpaRepos
+JpaRepos --> Tables
+
+@enduml

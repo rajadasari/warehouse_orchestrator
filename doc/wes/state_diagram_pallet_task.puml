@@ -1,0 +1,60 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+
+title Pallet & WES Task Life-Cycle State Machine Diagram
+
+state "Pallet Life-Cycle (wes.pallet)" as PalletLifeCycle {
+    [*] --> STAGED : Receiving Scan / Staging Lane
+    STAGED --> RECEIVED : Ingestion Submit (Validation Passed)
+    STAGED --> RECEIVED_WARNING : Ingestion Submit (Warnings Accepted)
+    STAGED --> REJECTED : Validation Failed (Tier 1/2/3)
+    REJECTED --> [*]
+
+    RECEIVED --> IN_TRANSIT : Conveyor / Forklift Picked Up
+    RECEIVED_WARNING --> IN_TRANSIT : Special Handling Route
+
+    IN_TRANSIT --> QA_HOLD : Allergen / Batch Quarantine Flag
+    QA_HOLD --> IN_TRANSIT : QA Inspection Released
+    QA_HOLD --> REJECTED : QA Failed
+
+    IN_TRANSIT --> STORED : Putaway Complete in High-Bay AS/RS
+    STORED --> ALLOCATED : Outbound Picking / Order Released
+    ALLOCATED --> PICKED : Transport to Staging Lane
+    PICKED --> SHIPPED : Loaded on Truck / Gate Pass Issued
+    SHIPPED --> DECOMMISSIONED : Carrier Returned or Disposed
+    DECOMMISSIONED --> [*]
+}
+
+state "WES Task & Operation Life-Cycle (wes.wes_task)" as TaskLifeCycle {
+    [*] --> CREATED : Task Generated
+    CREATED --> IN_PROGRESS : Started Op #1
+    
+    state "Sequential Operation Progress" as OpSeq {
+        state "Op #1 (e.g. Weigh & Scan)" as Op1
+        state "Op #2 (e.g. Bin Allocation)" as Op2
+        state "Op #3 (e.g. Transport)" as Op3
+        state "Op #4 (e.g. Putaway Confirm)" as Op4
+
+        Op1 : Status: IN_PROGRESS
+        Op2 : Status: PENDING
+        Op3 : Status: PENDING
+        Op4 : Status: PENDING
+
+        Op1 --> Op2 : completeOperation(seq 1)
+        Op2 --> Op3 : completeOperation(seq 2)
+        Op3 --> Op4 : completeOperation(seq 3)
+    }
+
+    IN_PROGRESS --> OpSeq
+    OpSeq --> COMPLETED : All Operations Completed Successfully
+    OpSeq --> FAILED : Operation Exception / Scale Mismatch / WMS Timeout
+    
+    COMPLETED --> [*] : Pallet Marked STORED
+    FAILED --> [*] : Supervisor Alert Raised
+}
+
+@enduml
