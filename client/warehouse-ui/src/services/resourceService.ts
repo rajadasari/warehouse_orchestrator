@@ -2,10 +2,14 @@ export interface ResourceItem {
   id: string;
   resourceId: string;
   name: string;
-  type: string; // 'SOFTWARE' | 'HARDWARE' | 'EQUIPMENT' | 'PLC' | 'WMS'
+  type: string; // 'SOFTWARE' | 'HARDWARE' | 'EQUIPMENT' | 'PLC' | 'WMS' | 'CONVEYOR' | etc.
+  category?: string; // 'HARDWARE' | 'DEVICE' | 'SOFTWARE'
+  templateCode?: string;
   status: string; // 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE'
   ip?: string;
-  customProperties: Record<string, any>;
+  templateProperties?: Record<string, unknown>;
+  customProperties: Record<string, unknown>;
+  effectiveProperties?: Record<string, unknown>;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -14,9 +18,12 @@ export interface CreateResourcePayload {
   resourceId: string;
   name: string;
   type: string;
+  category?: string;
+  templateCode?: string;
   status?: string;
   ip?: string;
-  customProperties?: Record<string, any>;
+  templateProperties?: Record<string, unknown>;
+  customProperties?: Record<string, unknown>;
 }
 
 const BASE_URL = '/api/v1/wes/resources';

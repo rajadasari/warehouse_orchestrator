@@ -48,6 +48,18 @@ public class ResourceEntity {
     private String status = "ACTIVE";
 
     @Builder.Default
+    @Column(name = "category", length = 30)
+    private String category = "SOFTWARE"; // 'HARDWARE', 'DEVICE', 'SOFTWARE'
+
+    @Column(name = "template_code", length = 60)
+    private String templateCode;
+
+    @Builder.Default
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "template_properties", nullable = false, columnDefinition = "jsonb")
+    private String templateProperties = "{}";
+
+    @Builder.Default
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "custom_properties", nullable = false, columnDefinition = "jsonb")
     private String customProperties = "{}";

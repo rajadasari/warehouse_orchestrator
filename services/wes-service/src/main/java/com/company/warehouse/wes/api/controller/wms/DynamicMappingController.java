@@ -190,8 +190,10 @@ public class DynamicMappingController {
     public ResponseEntity<Map<String, Object>> previewPayload(@RequestBody PreviewRequest request) {
         Map<String, Object> context = buildSampleContext(request.getResourceId(), request.getTestContext());
         String resolvedJson = dynamicEngine.buildPayload(request.getPayloadTemplate(), context, true);
-        String resolvedUrl = request.getEndpointUrl() != null && !request.getEndpointUrl().trim().isEmpty()
-                ? dynamicEngine.resolveUrl(request.getEndpointUrl(), context)
+        String rawEndpoint = request.getEndpointUrl() != null ? request.getEndpointUrl().trim() : "";
+        rawEndpoint = rawEndpoint.replaceFirst("^(?i)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\\s+", "");
+        String resolvedUrl = !rawEndpoint.isEmpty()
+                ? dynamicEngine.resolveUrl(rawEndpoint, context)
                 : "";
 
         return ResponseEntity.ok(Map.of(
@@ -217,11 +219,14 @@ public class DynamicMappingController {
 
         String baseUrl = tokenManager.resolveBaseUrl(targetResId);
         String rawEndpoint = request.getEndpointUrl() != null ? request.getEndpointUrl().trim() : "";
+        rawEndpoint = rawEndpoint.replaceFirst("^(?i)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\\s+", "");
         String resolvedPath = dynamicEngine.resolveUrl(rawEndpoint, context);
 
+        String cleanBase = baseUrl != null ? baseUrl.replaceAll("/+$", "") : "";
+        String cleanPath = resolvedPath.startsWith("/") ? resolvedPath : "/" + resolvedPath;
         String fullUrl = resolvedPath.startsWith("http")
                 ? resolvedPath
-                : (baseUrl != null ? baseUrl : "") + (resolvedPath.startsWith("/") ? "" : "/") + resolvedPath;
+                : cleanBase + cleanPath;
 
         String token = null;
         try {
@@ -244,6 +249,9 @@ public class DynamicMappingController {
                     .uri(fullUrl);
 
             resolvedHeaders.forEach(spec::header);
+            if (!resolvedHeaders.containsKey("Accept") && !resolvedHeaders.containsKey("accept")) {
+                spec.header("Accept", "application/json, */*");
+            }
             if (token != null && !token.trim().isEmpty()) {
                 if (!resolvedHeaders.containsKey("Authentication")) {
                     spec.header("Authentication", token);

@@ -179,9 +179,12 @@ public class AuthServiceImpl implements AuthService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username '" + request.getUsername() + "' is already registered");
         }
 
-        if (request.getEmail() != null && !request.getEmail().isBlank() && 
-                userRepository.existsByEmailIgnoreCase(request.getEmail())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email '" + request.getEmail() + "' is already registered");
+        String effectiveEmail = (request.getEmail() != null && !request.getEmail().isBlank())
+                ? request.getEmail().trim()
+                : request.getUsername().toLowerCase().trim() + "@warehouse.local";
+
+        if (userRepository.existsByEmailIgnoreCase(effectiveEmail)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email '" + effectiveEmail + "' is already registered");
         }
 
         RoleEntity role = roleRepository.findByRoleCode(request.getRole() != null ? request.getRole() : "ROLE_OPERATOR")
@@ -198,7 +201,7 @@ public class AuthServiceImpl implements AuthService {
         UserEntity user = UserEntity.builder()
                 .username(request.getUsername().toLowerCase().trim())
                 .fullName(request.getFullName())
-                .email(request.getEmail() != null ? request.getEmail().trim() : request.getUsername().toLowerCase().trim() + "@warehouse.local")
+                .email(effectiveEmail)
                 .passwordHash(passwordEncoder.encode(password))
                 .operatorBadgeId(request.getOperatorBadgeId() != null && !request.getOperatorBadgeId().isBlank() 
                         ? request.getOperatorBadgeId().trim() 

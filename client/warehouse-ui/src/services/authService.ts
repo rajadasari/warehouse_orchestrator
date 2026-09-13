@@ -126,6 +126,7 @@ export async function createUserApi(payload: CreateUserPayload): Promise<UserIte
     try {
       const err = await response.json();
       if (err?.message) errorMsg = err.message;
+      else if (err?.error && err.error !== 'Internal Server Error') errorMsg = err.error;
     } catch {
       // ignore
     }

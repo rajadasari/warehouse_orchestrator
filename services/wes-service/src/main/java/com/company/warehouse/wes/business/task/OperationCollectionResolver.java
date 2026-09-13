@@ -4,13 +4,51 @@ import com.company.warehouse.common.core.enums.TaskOperationType;
 import com.company.warehouse.wes.business.task.model.PlannedOperation;
 import com.company.warehouse.wes.business.validation.model.PalletValidationContext;
 import com.company.warehouse.wes.business.validation.model.ValidationResult;
+import com.company.warehouse.wes.data.entity.ResourceEntity;
+import com.company.warehouse.wes.data.entity.ResourceRelationshipEntity;
+import com.company.warehouse.wes.data.repository.ResourceRelationshipRepository;
+import com.company.warehouse.wes.data.repository.ResourceRepository;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
+@Slf4j
 @Service
 public class OperationCollectionResolver {
+
+    private static final Set<String> OUTBOUND_FLOW_TYPES = Set.of(
+            "CROSS_DOCK",
+            "OUTBOUND_SHIPMENT",
+            "TRANSFER_OUTBOUND"
+    );
+
+    private static final Set<String> CONVEYOR_RESOURCE_TYPES = Set.of(
+            "CONVEYOR",
+            "TURNTABLE",
+            "TRANSFER_PORT"
+    );
+
+    private final Optional<ResourceRepository> resourceRepository;
+    private final Optional<ResourceRelationshipRepository> relationshipRepository;
+
+    public OperationCollectionResolver() {
+        this.resourceRepository = Optional.empty();
+        this.relationshipRepository = Optional.empty();
+    }
+
+    @Autowired
+    public OperationCollectionResolver(
+            @Autowired(required = false) ResourceRepository resourceRepository,
+            @Autowired(required = false) ResourceRelationshipRepository relationshipRepository) {
+        this.resourceRepository = Optional.ofNullable(resourceRepository);
+        this.relationshipRepository = Optional.ofNullable(relationshipRepository);
+    }
 
     /**
      * Resolves the ordered collection of operations based on the validated pallet combination.
@@ -19,11 +57,8 @@ public class OperationCollectionResolver {
         List<PlannedOperation> operations = new ArrayList<>();
         int seq = 1;
 
-        String loadType = context.getLoadType() != null ? context.getLoadType() : "MATERIAL_WITH_SKU";
-
-        boolean isOutboundOrTransfer = "CROSS_DOCK".equalsIgnoreCase(context.getInboundType())
-                || "OUTBOUND_SHIPMENT".equalsIgnoreCase(context.getInboundType())
-                || "TRANSFER_OUTBOUND".equalsIgnoreCase(context.getInboundType());
+        boolean isOutboundOrTransfer = context.getInboundType() != null 
+                && OUTBOUND_FLOW_TYPES.contains(context.getInboundType().trim().toUpperCase());
 
         if (isOutboundOrTransfer) {
             operations.add(PlannedOperation.builder()
@@ -73,9 +108,9 @@ public class OperationCollectionResolver {
                 .description("Request directed putaway storage bin from Third-Party WMS")
                 .build());
 
-        // Operation 3: Physical transport (Conveyor vs Forklift)
-        boolean hasConveyor = context.getSourceLocation() != null && context.getSourceLocation().toUpperCase().contains("CONV");
-        if (hasConveyor) {
+        // Operation 3: Physical transport resolved dynamically via Resource & Topology Repository
+        boolean requiresConveyor = isConveyorTransportRequired(context);
+        if (requiresConveyor) {
             operations.add(PlannedOperation.builder()
                     .sequence(seq++)
                     .operationType(TaskOperationType.CONVEYOR_TRANSPORT)
@@ -110,5 +145,45 @@ public class OperationCollectionResolver {
                 .build());
 
         return operations;
+    }
+
+    /**
+     * Dynamically determines whether the pallet's source location or topology indicates conveyor transport.
+     */
+    private boolean isConveyorTransportRequired(PalletValidationContext context) {
+        String loc = context.getSourceLocation();
+        if (loc == null || loc.trim().isEmpty()) {
+            return false;
+        }
+        String cleanLoc = loc.trim();
+
+        // 1. Check if sourceLocation is a registered automation/conveyor resource
+        if (resourceRepository.isPresent()) {
+            Optional<ResourceEntity> resOpt = resourceRepository.get().findActiveByResourceId(cleanLoc);
+            if (resOpt.isPresent()) {
+                ResourceEntity res = resOpt.get();
+                if (res.getType() != null && CONVEYOR_RESOURCE_TYPES.contains(res.getType().trim().toUpperCase())) {
+                    log.debug("Location '{}' identified as conveyor resource type '{}'", cleanLoc, res.getType());
+                    return true;
+                }
+            }
+        }
+
+        // 2. Check if sourceLocation has active TRANSFERS_TO relationships in material flow
+        if (relationshipRepository.isPresent()) {
+            List<ResourceRelationshipEntity> rels = relationshipRepository.get()
+                    .findBySourceResourceIdAndRelationTypeAndActiveTrue(cleanLoc, "TRANSFERS_TO");
+            if (!rels.isEmpty()) {
+                log.debug("Location '{}' has active TRANSFERS_TO relationships: count={}", cleanLoc, rels.size());
+                return true;
+            }
+        }
+
+        // 3. Compatibility fallback when running in repository-less mock environments
+        if (resourceRepository.isEmpty() && relationshipRepository.isEmpty()) {
+            return cleanLoc.toUpperCase().contains("CONV");
+        }
+
+        return false;
     }
 }

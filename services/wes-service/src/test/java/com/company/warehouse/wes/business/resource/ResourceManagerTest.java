@@ -1,9 +1,14 @@
 package com.company.warehouse.wes.business.resource;
 
+import com.company.warehouse.wes.api.dto.resource.ResourceRelationshipDto;
 import com.company.warehouse.wes.api.dto.resource.ResourceRequestDto;
 import com.company.warehouse.wes.api.dto.resource.ResourceResponseDto;
 import com.company.warehouse.wes.data.entity.ResourceEntity;
+import com.company.warehouse.wes.data.entity.ResourceRelationshipEntity;
+import com.company.warehouse.wes.data.entity.ResourceTemplateEntity;
+import com.company.warehouse.wes.data.repository.ResourceRelationshipRepository;
 import com.company.warehouse.wes.data.repository.ResourceRepository;
+import com.company.warehouse.wes.data.repository.ResourceTemplateRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,35 +35,56 @@ class ResourceManagerTest {
     @Mock
     private ResourceRepository resourceRepository;
 
+    @Mock
+    private ResourceTemplateRepository templateRepository;
+
+    @Mock
+    private ResourceRelationshipRepository relationshipRepository;
+
     private ObjectMapper objectMapper;
     private ResourceManager resourceManager;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        resourceManager = new ResourceManager(resourceRepository, objectMapper);
+        resourceManager = new ResourceManager(resourceRepository, templateRepository, relationshipRepository, objectMapper);
     }
 
     @Test
-    @DisplayName("Create Logiqs Ambient WMS Software resource with IP in custom properties")
-    void testCreateLogiqsAmbientWmsResource() {
-        ResourceRequestDto request = ResourceRequestDto.builder()
-                .resourceId("LOGIQS-AMBIENT-WMS")
-                .name("Logiqs Ambient WMS")
-                .type("Software")
-                .ip("192.168.1.100")
-                .customProperties(Map.of("port", 8089, "protocol", "REST"))
+    @DisplayName("Create Hardware Conveyor resource with template inheritance")
+    void testCreateConveyorResourceWithTemplate() {
+        ResourceTemplateEntity tpl = ResourceTemplateEntity.builder()
+                .templateCode("CONVEYOR_SIEMENS_S7")
+                .templateName("Standard Siemens Conveyor")
+                .category("HARDWARE")
+                .resourceType("CONVEYOR")
+                .communicationProtocol("PLC_S7")
+                .defaultProperties("{\"speedMps\":1.2,\"dbNumber\":10}")
                 .build();
 
-        when(resourceRepository.existsByResourceId("LOGIQS-AMBIENT-WMS")).thenReturn(false);
+        when(templateRepository.findByTemplateCode("CONVEYOR_SIEMENS_S7")).thenReturn(Optional.of(tpl));
+        when(resourceRepository.existsByResourceId("CONV-LINE-01")).thenReturn(false);
+
+        ResourceRequestDto request = ResourceRequestDto.builder()
+                .resourceId("CONV-LINE-01")
+                .name("Main Infeed Conveyor")
+                .type("CONVEYOR")
+                .category("HARDWARE")
+                .templateCode("CONVEYOR_SIEMENS_S7")
+                .templateProperties(Map.of("dbNumber", 20, "plcIp", "192.168.1.101"))
+                .customProperties(Map.of("zone", "ZONE_A"))
+                .build();
 
         ResourceEntity savedEntity = ResourceEntity.builder()
                 .id(UUID.randomUUID())
-                .resourceId("LOGIQS-AMBIENT-WMS")
-                .name("Logiqs Ambient WMS")
-                .type("SOFTWARE")
+                .resourceId("CONV-LINE-01")
+                .name("Main Infeed Conveyor")
+                .type("CONVEYOR")
+                .category("HARDWARE")
+                .templateCode("CONVEYOR_SIEMENS_S7")
                 .status("ACTIVE")
-                .customProperties("{\"ip\":\"192.168.1.100\",\"port\":8089,\"protocol\":\"REST\"}")
+                .templateProperties("{\"dbNumber\":20,\"plcIp\":\"192.168.1.101\"}")
+                .customProperties("{\"zone\":\"ZONE_A\"}")
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
                 .build();
@@ -66,37 +93,69 @@ class ResourceManagerTest {
 
         ResourceResponseDto response = resourceManager.createResource(request);
 
-        assertThat(response.getResourceId()).isEqualTo("LOGIQS-AMBIENT-WMS");
-        assertThat(response.getName()).isEqualTo("Logiqs Ambient WMS");
-        assertThat(response.getType()).isEqualTo("SOFTWARE");
-        assertThat(response.getIp()).isEqualTo("192.168.1.100");
-        assertThat(response.getCustomProperties()).containsEntry("ip", "192.168.1.100");
-        assertThat(response.getCustomProperties()).containsEntry("port", 8089);
+        assertThat(response.getResourceId()).isEqualTo("CONV-LINE-01");
+        assertThat(response.getCategory()).isEqualTo("HARDWARE");
+        assertThat(response.getTemplateCode()).isEqualTo("CONVEYOR_SIEMENS_S7");
 
-        ArgumentCaptor<ResourceEntity> captor = ArgumentCaptor.forClass(ResourceEntity.class);
-        verify(resourceRepository).save(captor.capture());
-        ResourceEntity captured = captor.getValue();
-        assertThat(captured.getResourceId()).isEqualTo("LOGIQS-AMBIENT-WMS");
-        assertThat(captured.getType()).isEqualTo("SOFTWARE");
+        // Verify effective properties resolution: inherited speedMps (1.2) + overridden dbNumber (20) + custom zone
+        assertThat(response.getEffectiveProperties()).containsEntry("speedMps", 1.2);
+        assertThat(response.getEffectiveProperties()).containsEntry("dbNumber", 20);
+        assertThat(response.getEffectiveProperties()).containsEntry("plcIp", "192.168.1.101");
+        assertThat(response.getEffectiveProperties()).containsEntry("zone", "ZONE_A");
     }
 
     @Test
-    @DisplayName("Get Resource IP by resourceId")
-    void testGetResourceIp() {
-        ResourceEntity entity = ResourceEntity.builder()
+    @DisplayName("Create Material Flow relationship between Conveyor and Profile Check Station")
+    void testCreateResourceRelationship() {
+        when(resourceRepository.existsByResourceId("CONV-01")).thenReturn(true);
+        when(resourceRepository.existsByResourceId("PROFILE-STN-01")).thenReturn(true);
+        when(relationshipRepository.existsBySourceResourceIdAndTargetResourceIdAndRelationType("CONV-01", "PROFILE-STN-01", "TRANSFERS_TO"))
+                .thenReturn(false);
+
+        ResourceRelationshipEntity savedRel = ResourceRelationshipEntity.builder()
                 .id(UUID.randomUUID())
-                .resourceId("LOGIQS-AMBIENT-WMS")
-                .name("Logiqs Ambient WMS")
-                .type("SOFTWARE")
-                .status("ACTIVE")
-                .customProperties("{\"ip\":\"10.20.30.40\"}")
+                .sourceResourceId("CONV-01")
+                .targetResourceId("PROFILE-STN-01")
+                .relationCategory("MATERIAL_FLOW")
+                .relationType("TRANSFERS_TO")
+                .properties("{\"transitTimeSeconds\":15}")
+                .active(true)
                 .build();
 
-        when(resourceRepository.findByResourceId("LOGIQS-AMBIENT-WMS")).thenReturn(Optional.of(entity));
+        when(relationshipRepository.save(any(ResourceRelationshipEntity.class))).thenReturn(savedRel);
 
-        Optional<String> ipOpt = resourceManager.getResourceIp("LOGIQS-AMBIENT-WMS");
+        ResourceRelationshipDto dto = ResourceRelationshipDto.builder()
+                .sourceResourceId("CONV-01")
+                .targetResourceId("PROFILE-STN-01")
+                .relationCategory("MATERIAL_FLOW")
+                .relationType("TRANSFERS_TO")
+                .properties(Map.of("transitTimeSeconds", 15))
+                .build();
 
-        assertThat(ipOpt).isPresent();
-        assertThat(ipOpt.get()).isEqualTo("10.20.30.40");
+        ResourceRelationshipDto result = resourceManager.createRelationship(dto);
+
+        assertThat(result.getSourceResourceId()).isEqualTo("CONV-01");
+        assertThat(result.getTargetResourceId()).isEqualTo("PROFILE-STN-01");
+        assertThat(result.getRelationCategory()).isEqualTo("MATERIAL_FLOW");
+        assertThat(result.getRelationType()).isEqualTo("TRANSFERS_TO");
+    }
+
+    @Test
+    @DisplayName("Query downstream destinations for physical topology routing")
+    void testGetDownstreamTargets() {
+        ResourceRelationshipEntity rel = ResourceRelationshipEntity.builder()
+                .sourceResourceId("CONV-01")
+                .targetResourceId("PROFILE-STN-01")
+                .relationCategory("MATERIAL_FLOW")
+                .relationType("TRANSFERS_TO")
+                .active(true)
+                .build();
+
+        when(relationshipRepository.findBySourceResourceIdAndRelationTypeAndActiveTrue("CONV-01", "TRANSFERS_TO"))
+                .thenReturn(List.of(rel));
+
+        List<String> targets = resourceManager.getDownstreamTargets("CONV-01");
+
+        assertThat(targets).containsExactly("PROFILE-STN-01");
     }
 }

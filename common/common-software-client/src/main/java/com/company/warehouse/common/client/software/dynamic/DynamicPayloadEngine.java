@@ -66,6 +66,8 @@ public class DynamicPayloadEngine {
 
         JsonNode contextNode = objectMapper.valueToTree(context != null ? context : Map.of());
         String url = urlTemplate.trim();
+        // Strip leading HTTP method if user included it (e.g. "GET /api/pallets/{palletId}" -> "/api/pallets/{palletId}")
+        url = url.replaceFirst("^(?i)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\\s+", "");
 
         // 1. Resolve {{ path | defaultValue }} Handlebars expressions
         Matcher hbMatcher = TOKEN_PATTERN.matcher(url);
@@ -114,7 +116,17 @@ public class DynamicPayloadEngine {
         JsonNode direct = findFieldCaseInsensitive(context, key);
         if (direct != null && !direct.isNull() && !direct.isMissingNode()) return direct;
 
-        // 2. Search inside top-level object containers (e.g. context.order.orderId, context.data.id)
+        // 2. Normalized root search (e.g. pallet_id matches palletId or pallet-id)
+        String normKey = key.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+        Iterator<Map.Entry<String, JsonNode>> rootFields = context.fields();
+        while (rootFields.hasNext()) {
+            Map.Entry<String, JsonNode> entry = rootFields.next();
+            if (entry.getKey().replaceAll("[^a-zA-Z0-9]", "").equalsIgnoreCase(normKey)) {
+                return entry.getValue();
+            }
+        }
+
+        // 3. Search inside top-level object containers (e.g. context.pallet, context.order, context.entity)
         Iterator<Map.Entry<String, JsonNode>> fields = context.fields();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> entry = fields.next();
@@ -122,12 +134,33 @@ public class DynamicPayloadEngine {
                 JsonNode child = findFieldCaseInsensitive(entry.getValue(), key);
                 if (child != null && !child.isNull() && !child.isMissingNode()) return child;
 
-                // Also check if key stripped of suffix/prefix matches (e.g. {orderId} matching order.id)
-                if (key.toLowerCase().endsWith("id")) {
+                // Child normalized search
+                Iterator<Map.Entry<String, JsonNode>> childFields = entry.getValue().fields();
+                while (childFields.hasNext()) {
+                    Map.Entry<String, JsonNode> childEntry = childFields.next();
+                    if (childEntry.getKey().replaceAll("[^a-zA-Z0-9]", "").equalsIgnoreCase(normKey)) {
+                        return childEntry.getValue();
+                    }
+                }
+
+                // If key is or ends with "id" (e.g. {id}, {palletId}, {orderId})
+                if (normKey.endsWith("id")) {
                     JsonNode idChild = findFieldCaseInsensitive(entry.getValue(), "id");
-                    if (idChild != null && !idChild.isNull() && !idChild.isMissingNode() &&
-                            key.toLowerCase().startsWith(entry.getKey().toLowerCase())) {
-                        return idChild;
+                    if (idChild != null && !idChild.isNull() && !idChild.isMissingNode()) {
+                        String containerName = entry.getKey().replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+                        if (normKey.equals("id") || normKey.startsWith(containerName)) {
+                            return idChild;
+                        }
+                    }
+                    // Check identifier fields like "lpn", "palletLpn", "code", "no"
+                    String containerName = entry.getKey().replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+                    if (normKey.startsWith(containerName) || normKey.equals("id")) {
+                        for (String candidate : List.of("lpn", "palletLpn", "code", "skuCode", "itemCode", "number")) {
+                            JsonNode candNode = findFieldCaseInsensitive(entry.getValue(), candidate);
+                            if (candNode != null && !candNode.isNull() && !candNode.isMissingNode()) {
+                                return candNode;
+                            }
+                        }
                     }
                 }
             }

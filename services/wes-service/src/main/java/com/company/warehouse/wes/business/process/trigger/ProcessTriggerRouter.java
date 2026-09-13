@@ -29,6 +29,12 @@ public class ProcessTriggerRouter {
     private final PalletRepository palletRepository;
     private final com.company.warehouse.wes.business.process.flow.PalletFlowCoordinator palletFlowCoordinator;
 
+    private static final java.util.Set<String> OUTBOUND_FLOW_TYPES = java.util.Set.of(
+            "CROSS_DOCK",
+            "OUTBOUND_SHIPMENT",
+            "TRANSFER_OUTBOUND"
+    );
+
     @Transactional
     public InboundExecutionResponse routeAndTrigger(PalletValidationContext context, ValidationResult validationResult) {
         String lpn = context.getPalletLpn();
@@ -82,9 +88,8 @@ public class ProcessTriggerRouter {
         WesTaskEntity task = taskTrackingEngine.createAndStartTask(context, plannedOps);
 
         // 5. Execute automated process pipeline if outbound / transfer flow
-        boolean isOutboundOrTransfer = "CROSS_DOCK".equalsIgnoreCase(context.getInboundType())
-                || "OUTBOUND_SHIPMENT".equalsIgnoreCase(context.getInboundType())
-                || "TRANSFER_OUTBOUND".equalsIgnoreCase(context.getInboundType());
+        boolean isOutboundOrTransfer = context.getInboundType() != null 
+                && OUTBOUND_FLOW_TYPES.contains(context.getInboundType().trim().toUpperCase());
 
         if (isOutboundOrTransfer) {
             com.company.warehouse.wes.business.process.flow.PalletFlowContext flowContext =

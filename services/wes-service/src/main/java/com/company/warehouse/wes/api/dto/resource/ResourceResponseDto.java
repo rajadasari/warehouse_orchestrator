@@ -20,9 +20,13 @@ public class ResourceResponseDto implements Serializable {
     private String resourceId;
     private String name;
     private String type;
+    private String category;
+    private String templateCode;
     private String status;
     private String ip;
+    private Map<String, Object> templateProperties;
     private Map<String, Object> customProperties;
+    private Map<String, Object> effectiveProperties;
     private Instant createdAt;
     private Instant updatedAt;
 }

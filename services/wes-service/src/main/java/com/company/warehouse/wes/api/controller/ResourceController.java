@@ -45,9 +45,10 @@ public class ResourceController {
     @GetMapping
     public ResponseEntity<List<ResourceResponseDto>> getAllResources(
             @RequestParam(required = false) String type,
+            @RequestParam(required = false) String category,
             @RequestParam(required = false) String status) {
-        log.debug("GET /api/v1/wes/resources: Fetching resources type='{}', status='{}'", type, status);
-        return ResponseEntity.ok(resourceManager.getAllResources(type, status));
+        log.debug("GET /api/v1/wes/resources: Fetching resources type='{}', category='{}', status='{}'", type, category, status);
+        return ResponseEntity.ok(resourceManager.getAllResources(type, category, status));
     }
 
     @GetMapping("/{resourceId}")

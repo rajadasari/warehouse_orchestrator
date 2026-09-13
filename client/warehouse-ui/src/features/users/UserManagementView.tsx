@@ -324,13 +324,13 @@ export const UserManagementView: React.FC = () => {
       const roleDisplayName = selectedRoleObj ? selectedRoleObj.roleName : newRole;
 
       await createUserApi({
-        username: newUsername,
-        fullName: newFullName,
-        email: newEmail,
+        username: newUsername.trim(),
+        fullName: newFullName.trim(),
+        email: newEmail.trim() || undefined,
         role: newRole,
         facilityId: 'FAC-BLR-01',
         defaultZone: newZone,
-        operatorBadgeId: newBadge || undefined,
+        operatorBadgeId: newBadge.trim() || undefined,
         password: oneTimePasskey
       });
 

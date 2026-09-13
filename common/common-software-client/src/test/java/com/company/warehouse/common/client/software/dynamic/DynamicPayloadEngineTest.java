@@ -72,4 +72,26 @@ class DynamicPayloadEngineTest {
 
         assertEquals("/api/inventory/PLT-777", result);
     }
+
+    @Test
+    @DisplayName("resolveUrl strips leading HTTP method and substitutes path variable")
+    void resolveUrlStripsLeadingHttpMethod() {
+        String template = "GET /api/pallets/{palletId}";
+        Map<String, Object> context = Map.of("palletId", "PAL-9901");
+
+        String result = engine.resolveUrl(template, context);
+
+        assertEquals("/api/pallets/PAL-9901", result);
+    }
+
+    @Test
+    @DisplayName("resolveUrl matches normalized keys and container LPN")
+    void resolveUrlWithNormalizedKeysAndLpn() {
+        String template = "/api/pallets/{palletId}/status";
+        Map<String, Object> context = Map.of("pallet", Map.of("palletLpn", "PLT-FLOW-100"));
+
+        String result = engine.resolveUrl(template, context);
+
+        assertEquals("/api/pallets/PLT-FLOW-100/status", result);
+    }
 }

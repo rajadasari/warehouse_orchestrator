@@ -25,6 +25,14 @@ public class ResourceRequestDto {
     private String type;       // e.g. "Software", "Hardware", "PLC", "WMS"
 
     @Builder.Default
+    private String category = "SOFTWARE"; // "HARDWARE", "DEVICE", "SOFTWARE"
+
+    private String templateCode;
+
+    @Builder.Default
+    private Map<String, Object> templateProperties = new HashMap<>();
+
+    @Builder.Default
     private String status = "ACTIVE";
 
     /**

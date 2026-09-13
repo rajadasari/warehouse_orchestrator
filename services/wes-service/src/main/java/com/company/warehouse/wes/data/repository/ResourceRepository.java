@@ -13,6 +13,12 @@ public interface ResourceRepository extends JpaRepository<ResourceEntity, UUID> 
 
     Optional<ResourceEntity> findByResourceId(String resourceId);
 
+    Optional<ResourceEntity> findByResourceIdAndStatusIgnoreCase(String resourceId, String status);
+
+    default Optional<ResourceEntity> findActiveByResourceId(String resourceId) {
+        return findByResourceIdAndStatusIgnoreCase(resourceId, "ACTIVE");
+    }
+
     boolean existsByResourceId(String resourceId);
 
     List<ResourceEntity> findByTypeIgnoreCase(String type);
@@ -20,4 +26,8 @@ public interface ResourceRepository extends JpaRepository<ResourceEntity, UUID> 
     List<ResourceEntity> findByStatusIgnoreCase(String status);
 
     List<ResourceEntity> findByTypeIgnoreCaseAndStatusIgnoreCase(String type, String status);
+
+    List<ResourceEntity> findByCategoryIgnoreCase(String category);
+
+    List<ResourceEntity> findByTemplateCodeIgnoreCase(String templateCode);
 }
