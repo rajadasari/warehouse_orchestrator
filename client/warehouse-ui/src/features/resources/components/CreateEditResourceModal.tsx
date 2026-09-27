@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Globe, Plus, Trash2 } from 'lucide-react';
+import { Globe, Plus, Trash2, ExternalLink, Play, CheckCircle, AlertTriangle } from 'lucide-react';
 import { 
   resourceService, 
   ResourceItem, 
@@ -29,17 +29,22 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
   onClose,
   isEditing,
   initialData,
-  defaultType = 'SOFTWARE',
+  defaultType = 'REST_GENERIC',
   onSuccess,
   onRefresh
 }) => {
   const [formResourceId, setFormResourceId] = useState<string>('');
   const [formName, setFormName] = useState<string>('');
-  const [formType, setFormType] = useState<string>('SOFTWARE');
+  const [formDescription, setFormDescription] = useState<string>('');
+  const [formApplication, setFormApplication] = useState<string>('WMS');
+  const [formProtocol, setFormProtocol] = useState<string>('http');
+  const [formHost, setFormHost] = useState<string>('127.0.0.1');
+  const [formPort, setFormPort] = useState<number>(8080);
+  const [formDocumentationUrl, setFormDocumentationUrl] = useState<string>('');
+  const [formType, setFormType] = useState<string>('REST_GENERIC');
   const [formCategory, setFormCategory] = useState<string>('SOFTWARE');
-  const [formTemplateCode, setFormTemplateCode] = useState<string>('');
+  const [formTemplateCode, setFormTemplateCode] = useState<string>('REST_API_GENERIC');
   const [formStatus, setFormStatus] = useState<string>('ACTIVE');
-  const [formIp, setFormIp] = useState<string>('');
 
   // Templates list
   const [availableTemplates, setAvailableTemplates] = useState<ResourceTemplateItem[]>([]);
@@ -66,12 +71,20 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
   ]);
 
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isTestingMethod, setIsTestingMethod] = useState<boolean>(false);
+  const [methodTestResult, setMethodTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Load templates on modal open
   useEffect(() => {
     if (!isOpen) return;
     fetchResourceTemplatesApi()
-      .then(tpls => setAvailableTemplates(tpls))
+      .then(tpls => {
+        setAvailableTemplates(tpls);
+        if (!isEditing && !formTemplateCode && tpls.length > 0) {
+          const defaultTpl = tpls.find(t => t.templateCode === 'REST_API_GENERIC') || tpls[0];
+          handleSelectTemplateCode(defaultTpl.templateCode);
+        }
+      })
       .catch(err => console.error('Failed to load templates in modal:', err));
   }, [isOpen]);
 
@@ -82,23 +95,33 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
     if (isEditing && initialData) {
       setFormResourceId(initialData.resourceId);
       setFormName(initialData.name);
-      setFormType(initialData.type);
+      setFormDescription(initialData.description || '');
+      setFormApplication(initialData.application || 'WMS');
+      setFormProtocol(initialData.protocol || 'http');
+      setFormHost(initialData.host || initialData.ip || '127.0.0.1');
+      setFormPort(initialData.port || 8080);
+      setFormDocumentationUrl(initialData.documentationUrl || '');
+      setFormType(initialData.type || 'REST_GENERIC');
       setFormCategory(initialData.category || 'SOFTWARE');
       setFormTemplateCode(initialData.templateCode || '');
-      setFormStatus(initialData.status);
-      setFormIp(initialData.ip || '');
+      setFormStatus(initialData.status || 'ACTIVE');
       setTemplateProps(initialData.templateProperties || {});
 
       const props = initialData.customProperties || {};
-      const existingAuth = (props.auth && typeof props.auth === 'object') ? (props.auth as Record<string, unknown>) : {};
-      const detectedMethod = existingAuth.method || props.authMethod || ((props.clientId || props.clientSecret) ? 'OAUTH2_BEARER' : 'NONE');
+      const methodsCfg = initialData.methodsConfig || {};
+      const authConfig = (methodsCfg.AUTHENTICATE && typeof methodsCfg.AUTHENTICATE === 'object') 
+        ? (methodsCfg.AUTHENTICATE as Record<string, unknown>) 
+        : ((props.auth && typeof props.auth === 'object') ? (props.auth as Record<string, unknown>) : {});
+
+      const detectedMethod = authConfig.strategy || authConfig.method || props.authMethod || 
+        ((props.clientId || props.clientSecret) ? 'OAUTH2_BEARER' : 'NONE');
       setFormAuthMethod(String(detectedMethod));
-      setFormTokenPath(String(props.tokenPath || existingAuth.tokenPath || '/WMS.Api/api/authentication'));
-      setFormTokenResponseField(String(props.tokenResponseField || existingAuth.tokenResponseField || 'accessToken'));
-      setFormApiKeyHeader(String(props.apiKeyHeader || existingAuth.header || 'X-API-KEY'));
-      setFormApiKeyValue(String(props.apiKeyValue || existingAuth.keyValue || ''));
-      setFormUsername(String(props.username || existingAuth.username || ''));
-      setFormPassword(String(props.password || existingAuth.password || ''));
+      setFormTokenPath(String(props.tokenPath || authConfig.tokenPath || '/WMS.Api/api/authentication'));
+      setFormTokenResponseField(String(props.tokenResponseField || authConfig.tokenResponseField || 'accessToken'));
+      setFormApiKeyHeader(String(props.apiKeyHeader || authConfig.apiKeyHeader || authConfig.header || 'X-API-KEY'));
+      setFormApiKeyValue(String(props.apiKeyValue || authConfig.apiKeyValue || authConfig.keyValue || ''));
+      setFormUsername(String(props.username || authConfig.username || ''));
+      setFormPassword(String(props.password || authConfig.password || ''));
 
       // Populate softwareProps table
       const swRows: SoftwarePropRow[] = [];
@@ -119,14 +142,13 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
         if (props.clientSecret) swRows.push({ key: 'clientSecret', value: String(props.clientSecret), isSecret: true, useForAuth: true });
       }
       setSoftwareProps(swRows.length > 0 ? swRows : [
-        { key: 'clientId', value: '', isSecret: false, useForAuth: true },
-        { key: 'clientSecret', value: '', isSecret: true, useForAuth: true }
+        { key: '', value: '', isSecret: false, useForAuth: false }
       ]);
 
       // Populate customPropRows for non-software
       const nonSwRows: Array<{ key: string; value: string }> = [];
       Object.entries(props).forEach(([k, v]) => {
-        if (!['auth', 'authMethod', 'tokenPath', 'tokenResponseField', 'properties', 'clientId', 'clientSecret'].includes(k)) {
+        if (!['auth', 'authMethod', 'tokenPath', 'tokenResponseField', 'properties', 'clientId', 'clientSecret', 'ip', 'host', 'port', 'protocol'].includes(k)) {
           nonSwRows.push({ key: k, value: typeof v === 'object' ? JSON.stringify(v) : String(v) });
         }
       });
@@ -136,11 +158,16 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
       // Create Mode
       setFormResourceId('');
       setFormName('');
+      setFormDescription('');
+      setFormApplication('GENERIC_REST_APP');
+      setFormProtocol('http');
+      setFormHost('127.0.0.1');
+      setFormPort(8080);
+      setFormDocumentationUrl('/docs/apps/generic-rest.html');
       setFormType(defaultType);
-      setFormCategory(defaultType === 'HARDWARE' ? 'HARDWARE' : (defaultType === 'EQUIPMENT' || defaultType === 'PLC' ? 'DEVICE' : 'SOFTWARE'));
-      setFormTemplateCode('');
+      setFormCategory('SOFTWARE');
+      setFormTemplateCode('REST_API_GENERIC');
       setFormStatus('ACTIVE');
-      setFormIp('');
       setTemplateProps({});
       setFormAuthMethod('OAUTH2_BEARER');
       setFormTokenPath('/WMS.Api/api/authentication');
@@ -166,9 +193,14 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
     if (tpl) {
       setFormCategory(tpl.category);
       setFormType(tpl.resourceType);
-      if (!formName) {
-        setFormName(tpl.templateName);
-      }
+      if (!formName) setFormName(tpl.templateName);
+      if (!formDescription && tpl.description) setFormDescription(tpl.description);
+      if (tpl.application) setFormApplication(tpl.application);
+      if (tpl.defaultProtocol) setFormProtocol(tpl.defaultProtocol);
+      if (tpl.defaultHost) setFormHost(tpl.defaultHost);
+      if (tpl.defaultPort) setFormPort(tpl.defaultPort);
+      if (tpl.documentationUrl) setFormDocumentationUrl(tpl.documentationUrl);
+
       // Populate default properties from schema
       const initialProps: Record<string, unknown> = { ...(tpl.defaultProperties || {}) };
       if (tpl.propertySchema) {
@@ -179,16 +211,20 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
         });
       }
       setTemplateProps(initialProps);
-
-      // Pre-fill IP if template defines ip / plcIp
-      if (initialProps.plcIp && !formIp) setFormIp(String(initialProps.plcIp));
-      if (initialProps.ip && !formIp) setFormIp(String(initialProps.ip));
     }
   };
 
   const handleTemplatePropChange = (key: string, value: unknown) => {
     setTemplateProps(prev => ({ ...prev, [key]: value }));
   };
+
+  // Live Synthesized Base URL
+  const synthesizedBaseUrl = useMemo(() => {
+    const p = formProtocol.trim().toLowerCase() || 'http';
+    const h = formHost.trim() || '127.0.0.1';
+    const portNum = Number(formPort) || 8080;
+    return `${p}://${h}:${portNum}`;
+  }, [formProtocol, formHost, formPort]);
 
   // Live Auth Payload Preview for Software
   const liveAuthPayload = useMemo(() => {
@@ -201,14 +237,32 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
     return payload;
   }, [softwareProps]);
 
-  const handleAddPropRow = () => {
-    setCustomPropRows(prev => [...prev, { key: '', value: '' }]);
+  // Host input sanitizer (auto-extracts scheme or embedded port)
+  const handleHostChange = (raw: string) => {
+    let clean = raw.trim();
+    if (clean.startsWith('opc.tcp://')) {
+      setFormProtocol('opc.tcp');
+      clean = clean.replace('opc.tcp://', '');
+    } else if (clean.startsWith('http://')) {
+      setFormProtocol('http');
+      clean = clean.replace('http://', '');
+    } else if (clean.startsWith('https://')) {
+      setFormProtocol('https');
+      clean = clean.replace('https://', '');
+    }
+    if (clean.includes(':')) {
+      const parts = clean.split(':');
+      clean = parts[0];
+      const parsedPort = parseInt(parts[1], 10);
+      if (!isNaN(parsedPort) && parsedPort > 0) {
+        setFormPort(parsedPort);
+      }
+    }
+    setFormHost(clean);
   };
 
-  const handleRemovePropRow = (index: number) => {
-    setCustomPropRows(prev => prev.filter((_, i) => i !== index));
-  };
-
+  const handleAddPropRow = () => setCustomPropRows(prev => [...prev, { key: '', value: '' }]);
+  const handleRemovePropRow = (index: number) => setCustomPropRows(prev => prev.filter((_, i) => i !== index));
   const handlePropChange = (index: number, field: 'key' | 'value', value: string) => {
     setCustomPropRows(prev => {
       const updated = [...prev];
@@ -217,23 +271,60 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
     });
   };
 
-  const isSoftwareType = formType.toUpperCase() === 'SOFTWARE' || formType.toUpperCase() === 'WMS';
+  const isSoftwareType = formType.toUpperCase() === 'SOFTWARE' || formType.toUpperCase() === 'WMS' || formType.toUpperCase() === 'REST_GENERIC';
+
+  const handleTestAuthMethod = async () => {
+    if (!formResourceId.trim()) {
+      alert('Please specify Resource ID before testing method execution');
+      return;
+    }
+    setIsTestingMethod(true);
+    setMethodTestResult(null);
+    try {
+      const authPayload: Record<string, unknown> = {};
+      softwareProps.forEach(row => {
+        if (row.key.trim() && row.useForAuth) authPayload[row.key.trim()] = row.value.trim();
+      });
+
+      const res = await resourceService.testAuthConnection({
+        resourceId: formResourceId.trim(),
+        baseUrl: synthesizedBaseUrl,
+        tokenPath: formTokenPath.trim(),
+        tokenField: formTokenResponseField.trim(),
+        authMethod: formAuthMethod,
+        authPayload: authPayload,
+        apiKeyHeader: formApiKeyHeader.trim(),
+        apiKeyValue: formApiKeyValue.trim(),
+        username: formUsername.trim(),
+        password: formPassword.trim()
+      });
+
+      setMethodTestResult({
+        success: res.success,
+        message: res.message || (res.success ? 'Authentication successful!' : 'Authentication failed')
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Execution failed';
+      setMethodTestResult({ success: false, message: msg });
+    } finally {
+      setIsTestingMethod(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formResourceId.trim() || !formName.trim() || !formType.trim()) {
-      alert('Please provide Resource ID, Resource Name, and Type');
+    if (!formResourceId.trim() || !formName.trim()) {
+      alert('Please provide Resource ID and Resource Name');
       return;
     }
 
     setIsSaving(true);
     try {
       const customProps: Record<string, unknown> = {};
+      const authPayload: Record<string, unknown> = {};
 
       if (isSoftwareType) {
         const propList: Array<{ key: string; value: unknown; isSecret: boolean; useForAuth: boolean }> = [];
-        const authPayload: Record<string, unknown> = {};
-
         softwareProps.forEach(row => {
           if (row.key.trim()) {
             const k = row.key.trim();
@@ -248,78 +339,45 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
               isSecret: Boolean(row.isSecret),
               useForAuth: Boolean(row.useForAuth)
             });
-
             customProps[k] = val;
-            if (row.useForAuth) {
-              authPayload[k] = val;
-            }
+            if (row.useForAuth) authPayload[k] = val;
           }
         });
-
         customProps.properties = propList;
-
-        if (formAuthMethod === 'OAUTH2_BEARER') {
-          customProps.authMethod = 'OAUTH2_BEARER';
-          customProps.tokenPath = formTokenPath.trim();
-          customProps.tokenResponseField = formTokenResponseField.trim() || 'accessToken';
-          customProps.auth = {
-            method: 'OAUTH2_BEARER',
-            tokenPath: formTokenPath.trim() || '/WMS.Api/api/authentication',
-            tokenResponseField: formTokenResponseField.trim() || 'accessToken',
-            requestPayload: authPayload
-          };
-          if (authPayload.clientId) customProps.clientId = authPayload.clientId;
-          if (authPayload.clientSecret) customProps.clientSecret = authPayload.clientSecret;
-        } else if (formAuthMethod === 'API_KEY') {
-          customProps.apiKeyHeader = formApiKeyHeader.trim();
-          customProps.apiKeyValue = formApiKeyValue.trim();
-          customProps.authMethod = 'API_KEY';
-          customProps.auth = {
-            method: 'API_KEY',
-            header: formApiKeyHeader.trim(),
-            keyValue: formApiKeyValue.trim()
-          };
-        } else if (formAuthMethod === 'BASIC_AUTH') {
-          customProps.username = formUsername.trim();
-          customProps.password = formPassword.trim();
-          customProps.authMethod = 'BASIC_AUTH';
-          customProps.auth = {
-            method: 'BASIC_AUTH',
-            username: formUsername.trim(),
-            password: formPassword.trim()
-          };
-        } else {
-          customProps.authMethod = 'NONE';
-          customProps.auth = { method: 'NONE' };
-        }
       } else {
         customPropRows.forEach(row => {
-          if (row.key.trim()) {
-            const val = row.value.trim();
-            if (val === 'true') customProps[row.key.trim()] = true;
-            else if (val === 'false') customProps[row.key.trim()] = false;
-            else if (!isNaN(Number(val)) && val !== '') customProps[row.key.trim()] = Number(val);
-            else {
-              try {
-                customProps[row.key.trim()] = JSON.parse(val);
-              } catch {
-                customProps[row.key.trim()] = val;
-              }
-            }
-          }
+          if (row.key.trim()) customProps[row.key.trim()] = row.value.trim();
         });
       }
 
       const payload: CreateResourcePayload = {
         resourceId: formResourceId.trim(),
         name: formName.trim(),
+        description: formDescription.trim() || undefined,
+        application: formApplication.trim() || 'WMS',
+        protocol: formProtocol.trim().toLowerCase(),
+        host: formHost.trim(),
+        port: Number(formPort) || 8080,
+        documentationUrl: formDocumentationUrl.trim() || undefined,
         type: formType.trim().toUpperCase(),
         category: formCategory.trim().toUpperCase(),
         templateCode: formTemplateCode.trim() || undefined,
         status: formStatus.trim().toUpperCase(),
-        ip: formIp.trim() || undefined,
+        ip: formHost.trim(),
         templateProperties: Object.keys(templateProps).length > 0 ? templateProps : undefined,
-        customProperties: customProps
+        customProperties: customProps,
+        methodsConfig: {
+          AUTHENTICATE: {
+            strategy: formAuthMethod,
+            tokenPath: formTokenPath.trim(),
+            tokenResponseField: formTokenResponseField.trim(),
+            apiKeyHeader: formApiKeyHeader.trim(),
+            apiKeyValue: formApiKeyValue.trim(),
+            username: formUsername.trim(),
+            password: formPassword.trim(),
+            payload: authPayload
+          }
+        }
       };
 
       if (isEditing) {
@@ -345,21 +403,21 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
       isOpen={isOpen}
       onClose={onClose}
       title={isEditing ? `Edit Resource: ${formResourceId}` : 'Add New Resource'}
-      subtitle="Configure warehouse software, WMS, PLC, or hardware nodes"
-      maxWidth={isSoftwareType || formTemplateCode ? '740px' : '580px'}
+      subtitle="Configure scalable OOP Software & Hardware nodes with clean host, port, and AI-application binding"
+      maxWidth="760px"
       footer={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px', width: '100%' }}>
-          <Button variant="secondary" onClick={onClose} disabled={isSaving}>
+          <Button variant="secondary" onClick={onClose} disabled={isSaving} style={{ minHeight: '48px', minWidth: '48px' }}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={handleSave} isLoading={isSaving}>
+          <Button variant="primary" onClick={handleSave} isLoading={isSaving} style={{ minHeight: '48px', minWidth: '48px' }}>
             {isEditing ? 'Save Changes' : 'Create Resource'}
           </Button>
         </div>
       }
     >
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {/* Template Selector Section */}
+        {/* Step 1: Archetype Blueprint Selection */}
         <TemplatePropertiesFormSection
           templates={availableTemplates}
           selectedTemplateCode={formTemplateCode}
@@ -369,54 +427,250 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
           disabled={isEditing}
         />
 
-        {/* Resource ID */}
-        <div>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
-            Resource ID *
-          </label>
-          <input
-            type="text"
-            required
-            disabled={isEditing}
-            placeholder="e.g. CONV-LINE-01 or LOGIQS-AMBIENT-WMS"
-            value={formResourceId}
-            onChange={(e) => setFormResourceId(e.target.value.toUpperCase())}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: '8px',
-              border: '1px solid var(--border-default)',
-              backgroundColor: isEditing ? 'var(--bg-surface-subtle)' : 'var(--bg-page)',
-              color: 'var(--text-primary)',
-              fontSize: '13px',
-              fontFamily: 'monospace',
-              boxSizing: 'border-box'
-            }}
-          />
+        {/* Identity & Description Row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+              Resource ID *
+            </label>
+            <input
+              type="text"
+              required
+              disabled={isEditing}
+              placeholder="e.g. ERP-CONNECTOR-01 or WMS-CLIENT-02"
+              value={formResourceId}
+              onChange={(e) => setFormResourceId(e.target.value.toUpperCase())}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-default)',
+                backgroundColor: isEditing ? 'var(--bg-surface-subtle)' : 'var(--bg-page)',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                fontFamily: 'monospace',
+                boxSizing: 'border-box',
+                minHeight: '48px'
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+              Resource Name *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Generic Enterprise ERP REST Gateway"
+              value={formName}
+              onChange={(e) => setFormName(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-default)',
+                backgroundColor: 'var(--bg-page)',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                boxSizing: 'border-box',
+                minHeight: '48px'
+              }}
+            />
+          </div>
         </div>
 
-        {/* Resource Name */}
-        <div>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
-            Resource Name *
-          </label>
-          <input
-            type="text"
-            required
-            placeholder="e.g. Main Inbound S7 Conveyor Line"
-            value={formName}
-            onChange={(e) => setFormName(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: '8px',
-              border: '1px solid var(--border-default)',
-              backgroundColor: 'var(--bg-page)',
-              color: 'var(--text-primary)',
-              fontSize: '13px',
-              boxSizing: 'border-box'
-            }}
-          />
+        {/* Application Tag & Description */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+              Application / Subsystem *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. WMS, ERP, INVENTORY_APP"
+              value={formApplication}
+              onChange={(e) => setFormApplication(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-default)',
+                backgroundColor: 'var(--bg-page)',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                boxSizing: 'border-box',
+                minHeight: '48px'
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+              Description
+            </label>
+            <input
+              type="text"
+              placeholder="Operational description or context for human and AI agents"
+              value={formDescription}
+              onChange={(e) => setFormDescription(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: '1px solid var(--border-default)',
+                backgroundColor: 'var(--bg-page)',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                boxSizing: 'border-box',
+                minHeight: '48px'
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Connection Coordinates: Protocol, Host, Port Separation with Live URL Preview */}
+        <div style={{
+          padding: '12px',
+          borderRadius: '8px',
+          border: '1px solid var(--border-default)',
+          backgroundColor: 'var(--bg-surface-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-primary-600, #2563EB)' }}>
+              Connection Coordinates & Multi-Port Resolution
+            </span>
+            <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
+              Base URL: <strong className="text-cyan">{synthesizedBaseUrl}</strong>
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 140px', gap: '10px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
+                Protocol
+              </label>
+              <select
+                value={formProtocol}
+                onChange={(e) => setFormProtocol(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-default)',
+                  backgroundColor: 'var(--bg-page)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                  minHeight: '48px'
+                }}
+              >
+                <option value="http">http://</option>
+                <option value="https">https://</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
+                Host / IP Address *
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  required
+                  placeholder="127.0.0.1 or api.company.internal"
+                  value={formHost}
+                  onChange={(e) => handleHostChange(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px 8px 32px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-default)',
+                    backgroundColor: 'var(--bg-page)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                    fontFamily: 'monospace',
+                    boxSizing: 'border-box',
+                    minHeight: '48px'
+                  }}
+                />
+                <Globe size={15} color="var(--text-secondary)" style={{ position: 'absolute', left: '10px', top: '16px' }} />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
+                Default Port *
+              </label>
+              <input
+                type="number"
+                required
+                min={1}
+                max={65535}
+                value={formPort}
+                onChange={(e) => setFormPort(Number(e.target.value) || 8080)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-default)',
+                  backgroundColor: 'var(--bg-page)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                  fontFamily: 'monospace',
+                  minHeight: '48px',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Documentation URL link */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '2px' }}>
+            <div style={{ flex: 1 }}>
+              <input
+                type="text"
+                placeholder="Documentation / OpenAPI Spec URL (e.g. /docs/apps/generic-rest.html)"
+                value={formDocumentationUrl}
+                onChange={(e) => setFormDocumentationUrl(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-default)',
+                  backgroundColor: 'var(--bg-page)',
+                  color: 'var(--text-primary)',
+                  fontSize: '11.5px',
+                  fontFamily: 'monospace',
+                  boxSizing: 'border-box',
+                  minHeight: '38px'
+                }}
+              />
+            </div>
+            {formDocumentationUrl && (
+              <a
+                href={formDocumentationUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-secondary"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '6px 12px',
+                  fontSize: '11.5px',
+                  minHeight: '38px',
+                  textDecoration: 'none'
+                }}
+              >
+                <ExternalLink size={13} />
+                <span>Open Specs</span>
+              </a>
+            )}
+          </div>
         </div>
 
         {/* Row: Type, Category & Status */}
@@ -430,7 +684,7 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
               required
               value={formType}
               onChange={(e) => setFormType(e.target.value.toUpperCase())}
-              placeholder="e.g. CONVEYOR, PLC, SOFTWARE"
+              placeholder="REST_GENERIC"
               style={{
                 width: '100%',
                 padding: '8px 12px',
@@ -439,6 +693,7 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
                 backgroundColor: 'var(--bg-page)',
                 color: 'var(--text-primary)',
                 fontSize: '13px',
+                minHeight: '48px',
                 boxSizing: 'border-box'
               }}
             />
@@ -459,12 +714,13 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
                 backgroundColor: 'var(--bg-page)',
                 color: 'var(--text-primary)',
                 fontSize: '13px',
+                minHeight: '48px',
                 boxSizing: 'border-box'
               }}
             >
-              <option value="HARDWARE">HARDWARE</option>
-              <option value="DEVICE">DEVICE</option>
               <option value="SOFTWARE">SOFTWARE</option>
+              <option value="DEVICE">DEVICE</option>
+              <option value="HARDWARE">HARDWARE</option>
             </select>
           </div>
 
@@ -483,6 +739,7 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
                 backgroundColor: 'var(--bg-page)',
                 color: 'var(--text-primary)',
                 fontSize: '13px',
+                minHeight: '48px',
                 boxSizing: 'border-box'
               }}
             >
@@ -493,54 +750,63 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
           </div>
         </div>
 
-        {/* IP / Host Address */}
-        <div>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
-            {isSoftwareType ? 'Base URL (e.g. http://10.21.37.11:5000)' : 'Network IP Address / Host'}
-          </label>
-          <div style={{ position: 'relative' }}>
-            <input
-              type="text"
-              placeholder={isSoftwareType ? 'http://10.21.37.11:5000' : '192.168.1.10'}
-              value={formIp}
-              onChange={(e) => setFormIp(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px 8px 32px',
-                borderRadius: '8px',
-                border: '1px solid var(--border-default)',
-                backgroundColor: 'var(--bg-page)',
-                color: 'var(--text-primary)',
-                fontSize: '13px',
-                fontFamily: 'monospace',
-                boxSizing: 'border-box'
-              }}
-            />
-            <Globe size={15} color="var(--text-secondary)" style={{ position: 'absolute', left: '10px', top: '10px' }} />
-          </div>
-        </div>
-
-        {/* Conditional Form Sections: Software vs Non-software */}
+        {/* Polymorphic Methods & Auth Configuration */}
         {isSoftwareType ? (
-          <SoftwareAuthFormSection
-            formAuthMethod={formAuthMethod}
-            setFormAuthMethod={setFormAuthMethod}
-            formTokenPath={formTokenPath}
-            setFormTokenPath={setFormTokenPath}
-            formTokenResponseField={formTokenResponseField}
-            setFormTokenResponseField={setFormTokenResponseField}
-            formApiKeyHeader={formApiKeyHeader}
-            setFormApiKeyHeader={setFormApiKeyHeader}
-            formApiKeyValue={formApiKeyValue}
-            setFormApiKeyValue={setFormApiKeyValue}
-            formUsername={formUsername}
-            setFormUsername={setFormUsername}
-            formPassword={formPassword}
-            setFormPassword={setFormPassword}
-            softwareProps={softwareProps}
-            setSoftwareProps={setSoftwareProps}
-            liveAuthPayload={liveAuthPayload}
-          />
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Polymorphic Capability: AUTHENTICATE
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestAuthMethod}
+                isLoading={isTestingMethod}
+                leftIcon={<Play size={13} color="#10B981" />}
+                style={{ minHeight: '38px' }}
+              >
+                Test Authentication
+              </Button>
+            </div>
+
+            {methodTestResult && (
+              <div style={{
+                marginBottom: '10px',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                backgroundColor: methodTestResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                border: `1px solid ${methodTestResult.success ? '#10B981' : '#EF4444'}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '12px'
+              }}>
+                {methodTestResult.success ? <CheckCircle size={15} color="#10B981" /> : <AlertTriangle size={15} color="#EF4444" />}
+                <span>{methodTestResult.message}</span>
+              </div>
+            )}
+
+            <SoftwareAuthFormSection
+              formAuthMethod={formAuthMethod}
+              setFormAuthMethod={setFormAuthMethod}
+              formTokenPath={formTokenPath}
+              setFormTokenPath={setFormTokenPath}
+              formTokenResponseField={formTokenResponseField}
+              setFormTokenResponseField={setFormTokenResponseField}
+              formApiKeyHeader={formApiKeyHeader}
+              setFormApiKeyHeader={setFormApiKeyHeader}
+              formApiKeyValue={formApiKeyValue}
+              setFormApiKeyValue={setFormApiKeyValue}
+              formUsername={formUsername}
+              setFormUsername={setFormUsername}
+              formPassword={formPassword}
+              setFormPassword={setFormPassword}
+              softwareProps={softwareProps}
+              setSoftwareProps={setSoftwareProps}
+              liveAuthPayload={liveAuthPayload}
+            />
+          </div>
         ) : (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -560,35 +826,17 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
                 <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
                     type="text"
-                    placeholder="Key (e.g. rack, slot, divisionGrams)"
+                    placeholder="Key"
                     value={row.key}
                     onChange={(e) => handlePropChange(idx, 'key', e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: '8px 10px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border-default)',
-                      backgroundColor: 'var(--bg-page)',
-                      color: 'var(--text-primary)',
-                      fontSize: '12px',
-                      fontFamily: 'monospace'
-                    }}
+                    style={{ flex: 1, padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border-default)', fontSize: '12px', fontFamily: 'monospace' }}
                   />
                   <input
                     type="text"
-                    placeholder="Value (e.g. 10 or true)"
+                    placeholder="Value"
                     value={row.value}
                     onChange={(e) => handlePropChange(idx, 'value', e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: '8px 10px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border-default)',
-                      backgroundColor: 'var(--bg-page)',
-                      color: 'var(--text-primary)',
-                      fontSize: '12px',
-                      fontFamily: 'monospace'
-                    }}
+                    style={{ flex: 1, padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border-default)', fontSize: '12px', fontFamily: 'monospace' }}
                   />
                   <button
                     type="button"

@@ -2,7 +2,6 @@ package com.company.warehouse.wes.business.task;
 
 import com.company.warehouse.wes.business.task.model.PlannedOperation;
 import com.company.warehouse.wes.business.validation.model.PalletValidationContext;
-import com.company.warehouse.wes.data.entity.PalletEntity;
 import com.company.warehouse.wes.data.entity.TaskOperationEntity;
 import com.company.warehouse.wes.data.entity.WesTaskEntity;
 import com.company.warehouse.wes.data.repository.PalletRepository;

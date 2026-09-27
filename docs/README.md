@@ -20,6 +20,17 @@ This repository contains the architecture, database specifications, development 
 * [USER_MANAGEMENT_TABLE_SPECIFICATION.md](file:///c:/Users/Windows10/Documents/GitHub/Warehouse_orchestrator/docs/database/USER_MANAGEMENT_TABLE_SPECIFICATION.md): IEC 62443 user roles, operator badges, and access control.
 * [MASTER_DATA_SAMPLE_DATA.md](file:///c:/Users/Windows10/Documents/GitHub/Warehouse_orchestrator/docs/database/MASTER_DATA_SAMPLE_DATA.md): Sample seed data for development and testing.
 
+### 4. Integration & External APIs
+* [api_mapper_and_resource_configuration_guide.md](file:///c:/Users/Windows10/Documents/GitHub/Warehouse_orchestrator/docs/API%20mapper/api_mapper_and_resource_configuration_guide.md): Comprehensive guide on configuring external system resources, dynamic API mapper rules, OAuth2 token management, and dry-run testing.
+
+### 5. AI Configuration & Autonomous Debugging
+* **[AI Configuration & Debugging Master Index](file:///c:/Users/Windows10/Documents/GitHub/Warehouse_orchestrator/docs/AI%20configuration/README.md)**: Operational manual and schema specification for AI agents and automated harnesses.
+* [01. Universal Integration & Channels](file:///c:/Users/Windows10/Documents/GitHub/Warehouse_orchestrator/docs/AI%20configuration/01_universal_integration_and_channels.md): Universal mapping, 5-tier rule engine, dry-run pre-flight validation, and runtime ingress.
+* [02. WCS Industrial OPC UA Integration](file:///c:/Users/Windows10/Documents/GitHub/Warehouse_orchestrator/docs/AI%20configuration/02_wcs_opcua_industrial_integration.md): OPC UA client/server configurations, tag groups, conveyor station templates, and live hardware probing.
+* [03. Database & Runtime Configuration](file:///c:/Users/Windows10/Documents/GitHub/Warehouse_orchestrator/docs/AI%20configuration/03_database_and_runtime_configuration.md): Pre-flight connection tests and zero-downtime DataSource switching.
+* [04. Workflow Execution & Simulation](file:///c:/Users/Windows10/Documents/GitHub/Warehouse_orchestrator/docs/AI%20configuration/04_workflow_execution_and_simulation.md): Workflow engine modes (Real vs Virtual Digital Twin Simulation), DAG triggers, and execution traces.
+* [05. Resource & Entity Template Studio](file:///c:/Users/Windows10/Documents/GitHub/Warehouse_orchestrator/docs/AI%20configuration/05_resource_and_entity_template_studio.md): OOP archetype templates, OAuth2 token lifecycles, and dynamic entity method execution.
+
 ---
 
 ## Strategy Document Evolution & Updates

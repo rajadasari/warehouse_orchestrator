@@ -24,7 +24,7 @@ import java.util.UUID;
 @Entity
 @Table(
     name = "resource_relationship", 
-    schema = "wes",
+    schema = "wo",
     uniqueConstraints = @UniqueConstraint(name = "uq_resource_relationship", columnNames = {"source_resource_id", "target_resource_id", "relation_type"})
 )
 @Getter

@@ -88,10 +88,28 @@ public class WmsAuthController {
         String resId = request != null ? request.resourceId() : null;
         String baseUrl = request != null ? request.baseUrl() : null;
         String tokenPath = request != null ? request.tokenPath() : null;
-        String clientId = request != null ? request.clientId() : null;
-        String clientSecret = request != null ? request.clientSecret() : null;
+        String tokenField = request != null ? request.tokenField() : null;
+        String authMethod = request != null ? request.authMethod() : null;
+        Map<String, Object> authPayload = request != null && request.authPayload() != null
+                ? new java.util.LinkedHashMap<>(request.authPayload())
+                : new java.util.LinkedHashMap<>();
+        String apiKeyHeader = request != null ? request.apiKeyHeader() : null;
+        String apiKeyValue = request != null ? request.apiKeyValue() : null;
+        String username = request != null ? request.username() : null;
+        String password = request != null ? request.password() : null;
 
-        TokenManager.TokenTestResult result = tokenManager.testAndCacheToken(resId, baseUrl, tokenPath, clientId, clientSecret);
+        if (request != null && authPayload.isEmpty()) {
+            if (request.clientId() != null && !request.clientId().trim().isEmpty()) {
+                authPayload.put("clientId", request.clientId().trim());
+            }
+            if (request.clientSecret() != null && !request.clientSecret().trim().isEmpty()) {
+                authPayload.put("clientSecret", request.clientSecret().trim());
+            }
+        }
+
+        TokenManager.TokenTestResult result = tokenManager.testAndCacheToken(
+                resId, baseUrl, tokenPath, tokenField, authMethod, authPayload, apiKeyHeader, apiKeyValue, username, password
+        );
         return ResponseEntity.ok(result);
     }
 
@@ -99,6 +117,13 @@ public class WmsAuthController {
             String resourceId,
             String baseUrl,
             String tokenPath,
+            String tokenField,
+            String authMethod,
+            Map<String, Object> authPayload,
+            String apiKeyHeader,
+            String apiKeyValue,
+            String username,
+            String password,
             String clientId,
             String clientSecret
     ) {}

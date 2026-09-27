@@ -104,11 +104,7 @@ class DynamicMappingControllerTest {
         controller = new DynamicMappingController(
                 mappingRepository,
                 dynamicEngine,
-                resourceManager,
-                tokenManager,
-                palletRepository,
-                itemMasterRepository,
-                objectMapper
+                tokenManager
         );
 
         lenient().when(tokenManager.resolveBaseUrl(any())).thenReturn("http://localhost:" + mockServerPort);

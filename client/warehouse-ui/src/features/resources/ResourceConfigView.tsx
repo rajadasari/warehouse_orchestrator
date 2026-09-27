@@ -6,10 +6,8 @@ import {
   Laptop, 
   HardDrive, 
   RefreshCw, 
-  Key, 
   Plus,
-  GitCommit,
-  FileCode
+  GitCommit
 } from 'lucide-react';
 import { 
   resourceService, 
@@ -21,43 +19,61 @@ import { Tabs } from '../../components/common/Tabs';
 
 // Subcomponents
 import { ResourceTable } from './components/ResourceTable';
-import { CreateEditResourceModal } from './components/CreateEditResourceModal';
+import { ResourceStudioView } from './studio/ResourceStudioView';
+import { TemplateStudioView } from './TemplateStudioView';
 import { ResourceDetailsModal } from './components/ResourceDetailsModal';
-import { WmsAuthTestModal, WmsAuthTestResult } from './components/WmsAuthTestModal';
 import { ResourceMethodConfigModal } from './components/ResourceMethodConfigModal';
+import { PlcTagControlModal } from './components/PlcTagControlModal';
 import { ResourceRelationshipsTab } from './components/ResourceRelationshipsTab';
+import { ResourceShapesTab } from './components/ResourceShapesTab';
+import { ResourceRulesTab } from './components/ResourceRulesTab';
+import { ResourceTelemetryTab } from './components/ResourceTelemetryTab';
 import { ResourceTemplatesTab } from './components/ResourceTemplatesTab';
+import { ResourceTemplateItem } from '../../services/resourceTemplateService';
+import { Boxes, Zap, Activity, FileCode } from 'lucide-react';
 
-type ViewMode = 'RESOURCES' | 'TEMPLATES' | 'RELATIONSHIPS';
+type ViewMode = 'RESOURCES' | 'TEMPLATES' | 'SHAPES' | 'RULES' | 'TELEMETRY' | 'RELATIONSHIPS' | 'RESOURCE_STUDIO' | 'TEMPLATE_STUDIO';
 type TabKey = 'ALL' | 'SOFTWARE' | 'PLC' | 'DEVICES' | 'HARDWARE';
 
-export const ResourceConfigView: React.FC = () => {
+export interface ResourceConfigViewProps {
+  initialViewMode?: ViewMode;
+}
+
+export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
+  initialViewMode = 'RESOURCES'
+}) => {
   const [resources, setResources] = useState<ResourceItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Top Section Mode (Unified Workspace)
-  const [viewMode, setViewMode] = useState<ViewMode>('RESOURCES');
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
+
+  useEffect(() => {
+    if (initialViewMode) {
+      setViewMode(initialViewMode);
+    }
+  }, [initialViewMode]);
 
   // Active Category Tab for Resources
   const [activeTab, setActiveTab] = useState<TabKey>('ALL');
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
 
-  // Modal States
-  const [createEditModalOpen, setCreateEditModalOpen] = useState<boolean>(false);
-  const [isEditing, setIsEditing] = useState<boolean>(false);
+  // Resource Studio / Edit States
   const [editingResource, setEditingResource] = useState<ResourceItem | null>(null);
+
+  // Template Studio / Edit States
+  const [editingTemplate, setEditingTemplate] = useState<ResourceTemplateItem | null>(null);
 
   const [detailsModalOpen, setDetailsModalOpen] = useState<boolean>(false);
   const [selectedResourceDetails, setSelectedResourceDetails] = useState<ResourceItem | null>(null);
 
-  const [isTestingAuth, setIsTestingAuth] = useState<boolean>(false);
-  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
-  const [authResult, setAuthResult] = useState<WmsAuthTestResult | null>(null);
-
   const [methodModalOpen, setMethodModalOpen] = useState<boolean>(false);
   const [methodModalResource, setMethodModalResource] = useState<ResourceItem | null>(null);
+
+  const [plcModalOpen, setPlcModalOpen] = useState<boolean>(false);
+  const [plcModalResource, setPlcModalResource] = useState<ResourceItem | null>(null);
 
   // Load Resources from Backend
   const loadResources = useCallback(async () => {
@@ -112,15 +128,23 @@ export const ResourceConfigView: React.FC = () => {
 
   // Action Handlers
   const handleOpenCreateModal = () => {
-    setIsEditing(false);
     setEditingResource(null);
-    setCreateEditModalOpen(true);
+    setViewMode('RESOURCE_STUDIO');
   };
 
   const handleOpenEditModal = (res: ResourceItem) => {
-    setIsEditing(true);
     setEditingResource(res);
-    setCreateEditModalOpen(true);
+    setViewMode('RESOURCE_STUDIO');
+  };
+
+  const handleOpenCreateTemplate = () => {
+    setEditingTemplate(null);
+    setViewMode('TEMPLATE_STUDIO');
+  };
+
+  const handleOpenEditTemplate = (tpl: ResourceTemplateItem) => {
+    setEditingTemplate(tpl);
+    setViewMode('TEMPLATE_STUDIO');
   };
 
   const handleOpenDetailsModal = (res: ResourceItem) => {
@@ -131,6 +155,11 @@ export const ResourceConfigView: React.FC = () => {
   const handleOpenMethodModal = (res: ResourceItem) => {
     setMethodModalResource(res);
     setMethodModalOpen(true);
+  };
+
+  const handleOpenPlcModal = (res: ResourceItem) => {
+    setPlcModalResource(res);
+    setPlcModalOpen(true);
   };
 
   const handleDeleteResource = async (resourceId: string) => {
@@ -147,26 +176,66 @@ export const ResourceConfigView: React.FC = () => {
     }
   };
 
-  const handleTestWmsAuth = async (targetResourceId?: string) => {
-    setIsTestingAuth(true);
-    setAuthResult(null);
-    try {
-      const res = await resourceService.testWmsAuth(targetResourceId);
-      setAuthResult(res);
-      setAuthModalOpen(true);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Authentication failed';
-      alert(`Authentication failed: ${msg}`);
-    } finally {
-      setIsTestingAuth(false);
-    }
-  };
-
   const handleCopyIp = (ip: string) => {
     navigator.clipboard.writeText(ip);
     setCopiedIp(ip);
     setTimeout(() => setCopiedIp(null), 2000);
   };
+
+  if (viewMode === 'RESOURCE_STUDIO') {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        padding: '16px 20px',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
+        backgroundColor: 'var(--bg-page)'
+      }}>
+        <ResourceStudioView
+          editingResource={editingResource}
+          onSaveSuccess={(saved) => {
+            setSuccessMessage(`Resource '${saved.resourceId}' (${saved.name}) saved and activated.`);
+            setViewMode('RESOURCES');
+            setEditingResource(null);
+            loadResources();
+          }}
+          onCancel={() => {
+            setViewMode('RESOURCES');
+            setEditingResource(null);
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (viewMode === 'TEMPLATE_STUDIO') {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        padding: '16px 20px',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
+        backgroundColor: 'var(--bg-page)'
+      }}>
+        <TemplateStudioView
+          editingTemplate={editingTemplate}
+          onSaveSuccess={(saved) => {
+            setSuccessMessage(`Template '${saved.templateCode}' (${saved.templateName}) saved successfully.`);
+            setViewMode('TEMPLATES');
+            setEditingTemplate(null);
+          }}
+          onCancel={() => {
+            setViewMode('TEMPLATES');
+            setEditingTemplate(null);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -195,7 +264,11 @@ export const ResourceConfigView: React.FC = () => {
               margin: 0,
               letterSpacing: '-0.02em'
             }}>
-              Unified Resource & Topology Manager
+              {viewMode === 'TEMPLATES' 
+                ? 'Resource Manager: Template Definer' 
+                : viewMode === 'RESOURCES' 
+                  ? 'Resource Manager: Resource Composer' 
+                  : 'Resource Manager & Topology Workspace'}
             </h1>
             <span style={{
               fontSize: '10px',
@@ -208,11 +281,13 @@ export const ResourceConfigView: React.FC = () => {
               border: '1px solid var(--color-primary-200)',
               textTransform: 'uppercase'
             }}>
-              WES Nodes & Graph
+              {viewMode === 'TEMPLATES' ? 'Class Templates' : 'Live Assets'}
             </span>
           </div>
           <p style={{ fontSize: '11.5px', color: 'var(--text-secondary)', margin: 0 }}>
-            Supervise equipment archetypes, live physical nodes, material flow routing, and telemetry links
+            {viewMode === 'TEMPLATES'
+              ? 'Author, inspect, and manage reusable industrial equipment templates, properties, and methods'
+              : 'Compose, configure, and supervise runtime physical and software resource instances'}
           </p>
         </div>
 
@@ -229,25 +304,25 @@ export const ResourceConfigView: React.FC = () => {
             Refresh
           </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleTestWmsAuth()}
-            isLoading={isTestingAuth}
-            leftIcon={<Key size={13} color="#8B5CF6" />}
-            title="Authenticate with /WMS.Api/api/authentication and inspect cached Bearer token"
-          >
-            Test WMS Auth
-          </Button>
-
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleOpenCreateModal}
-            leftIcon={<Plus size={13} />}
-          >
-            Add Resource
-          </Button>
+          {viewMode === 'TEMPLATES' ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleOpenCreateTemplate}
+              leftIcon={<Plus size={13} />}
+            >
+              Add Template
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleOpenCreateModal}
+              leftIcon={<Plus size={13} />}
+            >
+              Add Resource
+            </Button>
+          )}
         </div>
       </div>
 
@@ -269,7 +344,7 @@ export const ResourceConfigView: React.FC = () => {
       )}
 
       {/* Main Workspace Navigation (Mode Switcher) */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexShrink: 0, overflowX: 'auto' }}>
         <button
           type="button"
           className={`btn ${viewMode === 'RESOURCES' ? 'btn-primary' : 'btn-secondary'}`}
@@ -277,7 +352,7 @@ export const ResourceConfigView: React.FC = () => {
           onClick={() => setViewMode('RESOURCES')}
         >
           <Layers size={18} />
-          <span>Active Resources ({stats.total})</span>
+          <span>Resource Composer ({stats.total})</span>
         </button>
 
         <button
@@ -287,7 +362,37 @@ export const ResourceConfigView: React.FC = () => {
           onClick={() => setViewMode('TEMPLATES')}
         >
           <FileCode size={18} />
-          <span>Archetype Templates</span>
+          <span>Template Definer</span>
+        </button>
+
+        <button
+          type="button"
+          className={`btn ${viewMode === 'SHAPES' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          onClick={() => setViewMode('SHAPES')}
+        >
+          <Boxes size={18} />
+          <span>Resource Shapes (Mixins)</span>
+        </button>
+
+        <button
+          type="button"
+          className={`btn ${viewMode === 'RULES' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          onClick={() => setViewMode('RULES')}
+        >
+          <Zap size={18} />
+          <span>Reactive Rules</span>
+        </button>
+
+        <button
+          type="button"
+          className={`btn ${viewMode === 'TELEMETRY' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          onClick={() => setViewMode('TELEMETRY')}
+        >
+          <Activity size={18} />
+          <span>Telemetry Historian</span>
         </button>
 
         <button
@@ -297,7 +402,7 @@ export const ResourceConfigView: React.FC = () => {
           onClick={() => setViewMode('RELATIONSHIPS')}
         >
           <GitCommit size={18} />
-          <span>Topology & Material Flow Links</span>
+          <span>Topology & Links</span>
         </button>
       </div>
 
@@ -351,6 +456,7 @@ export const ResourceConfigView: React.FC = () => {
               onOpenCreate={handleOpenCreateModal}
               onOpenDetails={handleOpenDetailsModal}
               onOpenMethods={handleOpenMethodModal}
+              onOpenPlcControl={handleOpenPlcModal}
               onOpenEdit={handleOpenEditModal}
               onDelete={handleDeleteResource}
               copiedIp={copiedIp}
@@ -361,8 +467,29 @@ export const ResourceConfigView: React.FC = () => {
       )}
 
       {viewMode === 'TEMPLATES' && (
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          <ResourceTemplatesTab />
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <ResourceTemplatesTab
+            onOpenCreate={handleOpenCreateTemplate}
+            onOpenEdit={handleOpenEditTemplate}
+          />
+        </div>
+      )}
+
+      {viewMode === 'SHAPES' && (
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <ResourceShapesTab />
+        </div>
+      )}
+
+      {viewMode === 'RULES' && (
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <ResourceRulesTab />
+        </div>
+      )}
+
+      {viewMode === 'TELEMETRY' && (
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <ResourceTelemetryTab />
         </div>
       )}
 
@@ -373,26 +500,10 @@ export const ResourceConfigView: React.FC = () => {
       )}
 
       {/* MODALS */}
-      <CreateEditResourceModal
-        isOpen={createEditModalOpen}
-        onClose={() => setCreateEditModalOpen(false)}
-        isEditing={isEditing}
-        initialData={editingResource}
-        defaultType={activeTab !== 'ALL' ? (activeTab === 'DEVICES' ? 'EQUIPMENT' : activeTab) : 'SOFTWARE'}
-        onSuccess={(msg) => setSuccessMessage(msg)}
-        onRefresh={loadResources}
-      />
-
       <ResourceDetailsModal
         isOpen={detailsModalOpen}
         onClose={() => setDetailsModalOpen(false)}
         resource={selectedResourceDetails}
-      />
-
-      <WmsAuthTestModal
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-        authResult={authResult}
       />
 
       <ResourceMethodConfigModal
@@ -401,6 +512,13 @@ export const ResourceConfigView: React.FC = () => {
         resource={methodModalResource}
         onSuccess={(msg) => setSuccessMessage(msg)}
         onRefresh={loadResources}
+      />
+
+      <PlcTagControlModal
+        isOpen={plcModalOpen}
+        onClose={() => setPlcModalOpen(false)}
+        resource={plcModalResource}
+        onSuccess={(msg) => setSuccessMessage(msg)}
       />
     </div>
   );

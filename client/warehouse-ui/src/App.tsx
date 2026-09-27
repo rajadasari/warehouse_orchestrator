@@ -8,6 +8,7 @@ import { ResourceConfigView } from './features/resources/ResourceConfigView';
 import { WmsFormsView } from './features/wms/WmsFormsView';
 import { ApiMappingManagerView } from './features/mappings/ApiMappingManagerView';
 import { WorkflowComposerView } from './features/workflows/WorkflowComposerView';
+import { DatabaseSettingsView } from './features/configuration/DatabaseSettingsView';
 
 interface AuthSession {
   isLoggedIn: boolean;
@@ -16,9 +17,24 @@ interface AuthSession {
   role: string;
 }
 
+export type NavItemId = 
+  | 'users' 
+  | 'configuration' 
+  | 'master-data' 
+  | 'resource-manager'
+  | 'template-definer'
+  | 'resource-composer'
+  | 'resource-config' 
+  | 'api-mappings' 
+  | 'workflows' 
+  | 'database-config' 
+  | 'inventory' 
+  | 'custom-fields' 
+  | 'wms-forms';
+
 export const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [activeNav, setActiveNav] = useState<'users' | 'configuration' | 'master-data' | 'resource-config' | 'api-mappings' | 'workflows' | 'inventory' | 'custom-fields' | 'wms-forms'>('workflows');
+  const [activeNav, setActiveNav] = useState<NavItemId>('workflows');
   const [session, setSession] = useState<AuthSession>(() => {
     const saved = localStorage.getItem('warehouse_session');
     if (saved) {
@@ -101,9 +117,12 @@ export const App: React.FC = () => {
         transition: 'background-color var(--transition-normal)'
       }}>
         {(activeNav === 'configuration' || activeNav === 'master-data') && <MasterDataView />}
-        {activeNav === 'resource-config' && <ResourceConfigView />}
+        {activeNav === 'template-definer' && <ResourceConfigView initialViewMode="TEMPLATES" />}
+        {activeNav === 'resource-composer' && <ResourceConfigView initialViewMode="RESOURCES" />}
+        {(activeNav === 'resource-manager' || activeNav === 'resource-config') && <ResourceConfigView initialViewMode="RESOURCES" />}
         {activeNav === 'api-mappings' && <ApiMappingManagerView />}
         {activeNav === 'workflows' && <WorkflowComposerView />}
+        {activeNav === 'database-config' && <DatabaseSettingsView />}
         {activeNav === 'users' && <UserManagementView />}
         {(activeNav === 'inventory' || activeNav === 'custom-fields') && <PalletInventoryView />}
         {activeNav === 'wms-forms' && <WmsFormsView />}

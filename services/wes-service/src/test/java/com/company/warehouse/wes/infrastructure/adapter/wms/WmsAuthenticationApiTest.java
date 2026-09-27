@@ -3,7 +3,6 @@ package com.company.warehouse.wes.infrastructure.adapter.wms;
 import com.company.warehouse.common.client.software.auth.AuthInterceptor;
 import com.company.warehouse.common.client.software.auth.TokenManager;
 import com.company.warehouse.wes.business.resource.ResourceManager;
-import com.company.warehouse.wes.infrastructure.adapter.wms.WmsClientProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

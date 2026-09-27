@@ -27,8 +27,9 @@
 [CmdletBinding()]
 param(
     [string]$InstallPath = "C:\warehouse-platform",
-    [string]$DbName = "warehouse_test_db",
+    [string]$DbName = "warehouse_db",
     [switch]$DropDatabase = $false,
+    [switch]$ForceDrop = $false,
     [switch]$RemoveInstallDir = $false,
     [switch]$RemoveFirewallRules = $true
 )
@@ -135,26 +136,34 @@ if ($RemoveFirewallRules) {
 if ($DropDatabase) {
     Write-Header "STEP 4: Reset PostgreSQL Database & Role"
 
-    $psqlCmd = Get-Command psql -ErrorAction SilentlyContinue
-    $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
-        Get-ChildItem -Path "C:\Program Files\PostgreSQL" -Recurse -Filter "psql.exe" -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch "pgAdmin" } |
-            Select-Object -First 1 -ExpandProperty FullName
-    }
-
-    if ($psqlPath -and (Test-Path $psqlPath)) {
-        Write-Host "Terminating active connections to '$DbName'..." -ForegroundColor Yellow
-        & $psqlPath -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DbName' AND pid <> pg_backend_pid();" 2>&1 | Out-Null
-
-        Write-Host "Dropping database '$DbName'..." -ForegroundColor Yellow
-        & $psqlPath -U postgres -d postgres -c "DROP DATABASE IF EXISTS $DbName;" 2>&1 | Out-Null
-
-        Write-Host "Dropping role 'warehouse_app'..." -ForegroundColor Yellow
-        & $psqlPath -U postgres -d postgres -c "DROP ROLE IF EXISTS warehouse_app;" 2>&1 | Out-Null
-
-        Write-Success "Database '$DbName' and role 'warehouse_app' purged."
+    if (-not $ForceDrop) {
+        Write-Warn "SAFETY CHECK: -DropDatabase was specified on '$DbName'."
+        Write-Warn "To prevent accidental loss of existing DB & data, pass -ForceDrop to proceed."
+        Write-Warn "Skipping database drop. Existing DB and data are preserved intact."
     } else {
-        Write-Warn "psql.exe not found. Please drop '$DbName' and 'warehouse_app' manually in pgAdmin or psql."
+        $psqlCmd = Get-Command psql -ErrorAction SilentlyContinue
+        $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
+            Get-ChildItem -Path "C:\Program Files\PostgreSQL" -Recurse -Filter "psql.exe" -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -notmatch "pgAdmin" } |
+                Select-Object -First 1 -ExpandProperty FullName
+        }
+
+        if ($psqlPath -and (Test-Path $psqlPath)) {
+            $canIpv4 = (Test-NetConnection -ComputerName "127.0.0.1" -Port 5432 -WarningAction SilentlyContinue).TcpTestSucceeded
+            $targetHost = if ($canIpv4) { "127.0.0.1" } else { "::1" }
+            Write-Host "Terminating active connections to '$DbName' on $targetHost..." -ForegroundColor Yellow
+            & $psqlPath -U postgres -h $targetHost -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DbName' AND pid <> pg_backend_pid();" 2>&1 | Out-Null
+
+            Write-Host "Dropping database '$DbName'..." -ForegroundColor Yellow
+            & $psqlPath -U postgres -h $targetHost -d postgres -c "DROP DATABASE IF EXISTS $DbName;" 2>&1 | Out-Null
+
+            Write-Host "Dropping role 'warehouse_app'..." -ForegroundColor Yellow
+            & $psqlPath -U postgres -h $targetHost -d postgres -c "DROP ROLE IF EXISTS warehouse_app;" 2>&1 | Out-Null
+
+            Write-Success "Database '$DbName' and role 'warehouse_app' purged."
+        } else {
+            Write-Warn "psql.exe not found. Please drop '$DbName' and 'warehouse_app' manually in pgAdmin or psql."
+        }
     }
 }
 

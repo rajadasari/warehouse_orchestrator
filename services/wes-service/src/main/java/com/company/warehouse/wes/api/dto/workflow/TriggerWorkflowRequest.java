@@ -21,4 +21,10 @@ public class TriggerWorkflowRequest implements Serializable {
     private String entityReference; // e.g. pallet LPN
 
     private Map<String, Object> initialContext;
+
+    /**
+     * Optional execution mode override (true = SIMULATION, false = REAL).
+     * If null, falls back to the current engine-level execution mode setting.
+     */
+    private Boolean simulationMode;
 }

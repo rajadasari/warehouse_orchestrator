@@ -39,26 +39,40 @@ button {
 }
 
 /* Custom Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-400) transparent;
+}
+
+[data-theme="dark"] * {
+  scrollbar-color: var(--color-neutral-600) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--color-neutral-300);
+  background: var(--bg-surface-subtle, rgba(0, 0, 0, 0.05));
   border-radius: var(--radius-pill);
 }
 
+::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-400);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
 [data-theme="dark"] ::-webkit-scrollbar-thumb {
-  background: var(--color-neutral-700);
+  background: var(--color-neutral-600);
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-neutral-400);
+  background: var(--color-primary-500);
+  background-clip: content-box;
 }
 
 /* Print styles for Operator Handover Slip (Thermal / Label / Paper) */

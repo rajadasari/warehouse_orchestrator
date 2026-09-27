@@ -1,25 +1,53 @@
+import { MethodDefinition } from '../features/resources/types/resourceEnums';
+
+export type IndustrialPropertyType =
+  | 'STRING'
+  | 'INTEGER'
+  | 'LONG'
+  | 'DOUBLE'
+  | 'BOOLEAN'
+  | 'DATETIME'
+  | 'SECRET'
+  | 'ENUM'
+  | 'LOCATION'
+  | 'MAP'
+  | 'ARRAY'
+  | 'BYTE_ARRAY';
+
 export interface PropertySchemaItem {
   key: string;
   label: string;
-  type: 'STRING' | 'NUMBER' | 'BOOLEAN' | 'ENUM' | 'ARRAY';
+  type: IndustrialPropertyType | string;
   required?: boolean;
   defaultValue?: unknown;
   unit?: string;
   options?: string[];
   description?: string;
+  isBaseProperty?: boolean;
+  tags?: string[];
+  logToTelemetry?: boolean;
 }
 
 export interface ResourceTemplateItem {
   id?: string;
   templateCode: string;
   templateName: string;
-  category: 'HARDWARE' | 'DEVICE' | 'SOFTWARE';
+  description?: string;
+  documentationUrl?: string;
+  category: 'PHYSICAL' | 'SOFTWARE' | 'VIRTUAL' | 'LOGICAL' | string;
   resourceType: string;
   communicationProtocol: string;
+  communicationMethod?: string;
+  application?: string;
+  defaultProtocol?: string;
+  defaultHost?: string;
+  defaultPort?: number;
   propertySchema: PropertySchemaItem[];
   defaultProperties: Record<string, unknown>;
-  supportedCommands: string[];
+  supportedCommands?: string[];
+  methodsSchema?: MethodDefinition[];
   active: boolean;
+  systemTemplate?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -78,4 +106,27 @@ export async function deleteResourceTemplateApi(templateCode: string): Promise<v
     method: 'DELETE'
   });
   return handleResponse<void>(res);
+}
+
+export interface TemplatePackageItem {
+  schemaVersion?: string;
+  environment?: string;
+  exportedBy?: string;
+  exportedAt?: string;
+  templates: ResourceTemplateItem[];
+}
+
+export async function exportTemplatePackageApi(templateCode?: string): Promise<TemplatePackageItem> {
+  const path = templateCode ? `${BASE_URL}/${encodeURIComponent(templateCode)}/export` : `${BASE_URL}/export-all`;
+  const res = await fetch(path);
+  return handleResponse<TemplatePackageItem>(res);
+}
+
+export async function importTemplatePackageApi(pkg: TemplatePackageItem, overwrite = true): Promise<ResourceTemplateItem[]> {
+  const res = await fetch(`${BASE_URL}/import?overwrite=${overwrite}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(pkg)
+  });
+  return handleResponse<ResourceTemplateItem[]>(res);
 }

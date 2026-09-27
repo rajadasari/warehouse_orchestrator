@@ -40,6 +40,10 @@
         <testcontainers.version>1.20.1</testcontainers.version>
         <spotless.version>2.43.0</spotless.version>
         <cyclonedx.version>2.8.0</cyclonedx.version>
+
+        <!-- Upstream Core Industrial Libraries -->
+        <resource-manager-core.version>1.0.0-SNAPSHOT</resource-manager-core.version>
+        <ot-connect.version>1.0.0-SNAPSHOT</ot-connect.version>
     </properties>
 
     <modules>
@@ -120,6 +124,23 @@
                 <groupId>com.company.warehouse</groupId>
                 <artifactId>common-software-client</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.company.warehouse</groupId>
+                <artifactId>common-resource</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- Upstream Core Industrial Libraries -->
+            <dependency>
+                <groupId>org.platform</groupId>
+                <artifactId>resource-manager-core</artifactId>
+                <version>${resource-manager-core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.platform</groupId>
+                <artifactId>ot-connect</artifactId>
+                <version>${ot-connect.version}</version>
             </dependency>
 
             <!-- Curated Third-Party Libraries -->

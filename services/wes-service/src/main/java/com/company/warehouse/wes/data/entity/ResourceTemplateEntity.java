@@ -21,7 +21,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "resource_template", schema = "wes")
+@Table(name = "resource_template", schema = "wo")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -41,13 +41,67 @@ public class ResourceTemplateEntity {
     private String templateName;
 
     @Column(name = "category", nullable = false, length = 30)
-    private String category; // 'HARDWARE', 'DEVICE', 'SOFTWARE'
+    private String category; // 'PHYSICAL', 'SOFTWARE', 'VIRTUAL', 'LOGICAL'
 
     @Column(name = "resource_type", nullable = false, length = 50)
-    private String resourceType; // 'CONVEYOR', 'TURNTABLE', 'TRANSFER_PORT', 'LOADING_STATION', etc.
+    private String resourceType; // 'CONVEYOR', 'TURNTABLE', 'AGV', 'PLC', etc.
 
-    @Column(name = "communication_protocol", nullable = false, length = 30)
-    private String communicationProtocol; // 'PLC_S7', 'MODBUS_TCP', 'TCP_SOCKET', 'SERIAL', 'REST', 'GRPC'
+    @Column(name = "communication_method", nullable = false, length = 50)
+    private String communicationProtocol; // 'PLC_S7', 'MODBUS_TCP', 'TCP_SOCKET', 'SERIAL', 'REST', 'OPC_UA', 'MQTT/VDA5050', 'INTERNAL'
+
+    @Column(name = "description", length = 500)
+    private String description;
+
+    @Column(name = "documentation_url", length = 500)
+    private String documentationUrl;
+
+    public String getCommunicationMethod() {
+        return communicationProtocol;
+    }
+
+    public void setCommunicationMethod(String method) {
+        this.communicationProtocol = method;
+    }
+
+    public static class ResourceTemplateEntityBuilder {
+        public ResourceTemplateEntityBuilder communicationMethod(String method) {
+            this.communicationProtocol = method;
+            return this;
+        }
+    }
+
+    // --- Backward Compatibility Helpers for Legacy Callers ---
+    public String getApplication() {
+        return "WO";
+    }
+
+    public void setApplication(String app) {
+        // No-op: Sovereign WO does not lock templates to applications
+    }
+
+    public String getDefaultProtocol() {
+        return "http";
+    }
+
+    public void setDefaultProtocol(String proto) {
+        // Managed by OT Gateway
+    }
+
+    public String getDefaultHost() {
+        return "127.0.0.1";
+    }
+
+    public void setDefaultHost(String host) {
+        // Managed by OT Gateway
+    }
+
+    public int getDefaultPort() {
+        return 8080;
+    }
+
+    public void setDefaultPort(int port) {
+        // Managed by OT Gateway
+    }
 
     @Builder.Default
     @JdbcTypeCode(SqlTypes.JSON)
@@ -63,6 +117,11 @@ public class ResourceTemplateEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "supported_commands", nullable = false, columnDefinition = "jsonb")
     private String supportedCommands = "[]";
+
+    @Builder.Default
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "methods_schema", nullable = false, columnDefinition = "jsonb")
+    private String methodsSchema = "[]";
 
     @Builder.Default
     @Column(name = "is_active", nullable = false)

@@ -496,31 +496,32 @@ Use `scripts/onprem/decommission_platform.ps1` in an elevated **PowerShell (Run 
 ```powershell
 Set-Location "C:\Users\Windows10\Documents\GitHub\Warehouse_orchestrator"
 
-# 1-Command Complete Wipe:
-.\scripts\onprem\decommission_platform.ps1 -DropDatabase -RemoveInstallDir
+# Safe Platform Binaries Reset (Database and data preserved):
+.\scripts\onprem\decommission_platform.ps1 -RemoveInstallDir
 ```
 This automatically:
 1. Stops all 7 services in reverse order.
 2. Unregisters all 7 services from Windows SCM.
 3. Removes Windows Firewall inbound rules.
-4. Terminates PostgreSQL connections to `warehouse_test_db`, drops the database, and drops the `warehouse_app` role.
-5. Deletes `C:\warehouse-platform` completely.
+4. Deletes `C:\warehouse-platform` completely.
+5. **Preserves the database (`warehouse_db`) and all warehouse data 100% intact.**
 
-### 4.2 Manual Reset Commands
+> **Note**: If you ever intentionally want to drop the database, you must supply both `-DropDatabase` and `-ForceDrop`.
+
+### 4.2 Manual Reset Commands (Preserving Database)
 ```powershell
 # 1. Stop all services
 $services = @("warehouse-gateway", "warehouse-wes", "warehouse-wms", "warehouse-fleet", "warehouse-asrs", "warehouse-wcs", "warehouse-auth")
 foreach ($s in $services) { Stop-Service -Name $s -Force -ErrorAction SilentlyContinue }
 
-# 2. Unregister services from Windows
+# 2. Unregister services from Windows SCM
 foreach ($s in $services) { & sc.exe delete $s }
 
-# 3. Drop test database & user
-psql -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'warehouse_test_db';"
-psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS warehouse_test_db;"
-psql -U postgres -d postgres -c "DROP ROLE IF EXISTS warehouse_app;"
+# 3. Remove Firewall Rules
+Remove-NetFirewallRule -DisplayName "Warehouse Platform Gateway" -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName "Warehouse Mosquitto MQTT" -ErrorAction SilentlyContinue
 
-# 4. Clean up files
+# 4. Clean up platform files (database remains untouched)
 Remove-Item -Path "C:\warehouse-platform" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 

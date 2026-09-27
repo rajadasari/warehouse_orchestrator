@@ -16,12 +16,45 @@
 param(
     [string]$NewPassword = "",
     [string]$PostgresUser = "postgres",
-    [string]$DbName = "warehouse_test_db"
+    [string]$DbName = "warehouse_db",
+    [string]$DbHost = "auto",
+    [switch]$Force = $false
 )
+
+if ($DbHost -eq "auto" -or [string]::IsNullOrWhiteSpace($DbHost)) {
+    $canIpv4 = (Test-NetConnection -ComputerName "127.0.0.1" -Port 5432 -WarningAction SilentlyContinue).TcpTestSucceeded
+    $DbHost = if ($canIpv4) { "127.0.0.1" } else { "::1" }
+}
+$psqlHost = $DbHost.Replace("[","").Replace("]","")
 
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host " WAREHOUSE ORCHESTRATOR - MASTER ADMIN COMMISSIONING (DAY-0)" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
+
+# Locate psql utility
+$psqlCmd = Get-Command psql -ErrorAction SilentlyContinue
+$psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
+    Get-ChildItem -Path "C:\Program Files\PostgreSQL" -Recurse -Filter "psql.exe" -ErrorAction SilentlyContinue | 
+        Where-Object { $_.FullName -notmatch "pgAdmin" } | 
+        Select-Object -First 1 -ExpandProperty FullName
+}
+
+# Check if admin user already exists with an active password in existing DB
+if ($psqlPath -and (Test-Path $psqlPath) -and (-not $Force)) {
+    try {
+        $existingAdminCheck = & $psqlPath -U $PostgresUser -h $psqlHost -d $DbName -tc "SELECT count(*) FROM auth.users WHERE username = 'admin' AND password_hash NOT LIKE 'INIT:%';" 2>&1 | Out-String
+        $activeAdminCount = 0
+        [int]::TryParse($existingAdminCheck.Trim(), [ref]$activeAdminCount) | Out-Null
+        if ($activeAdminCount -gt 0) {
+            Write-Host "`n[INFO] Active Master Administrator account already exists in '$DbName'." -ForegroundColor Green
+            Write-Host "       Preserving existing credentials and password (skipping Day-0 overwrite)." -ForegroundColor Green
+            Write-Host "       (To forcibly reset the password, run: .\init_admin.ps1 -Force)`n" -ForegroundColor DarkGray
+            exit 0
+        }
+    } catch {
+        # Fall through if query fails
+    }
+}
 
 # 1. Generate or validate password
 if ([string]::IsNullOrWhiteSpace($NewPassword)) {
@@ -35,6 +68,7 @@ if ([string]::IsNullOrWhiteSpace($NewPassword)) {
 }
 
 Write-Host "`n[COMMISSIONING] Initializing Master Administrator Account:" -ForegroundColor Yellow
+Write-Host "  Database       : $DbName" -ForegroundColor White
 Write-Host "  Facility       : FAC-BLR-01" -ForegroundColor White
 Write-Host "  Master Username: admin" -ForegroundColor White
 Write-Host "  One-Time Key   : $NewPassword" -ForegroundColor Green
@@ -46,17 +80,9 @@ $sql = "UPDATE auth.users SET password_hash = 'INIT:$NewPassword', force_passwor
 Write-Host "`n[APPLY TO DATABASE] Executing SQL via psql..." -ForegroundColor Gray
 
 try {
-    # Attempt execution if psql is in PATH or Program Files
-    $psqlCmd = Get-Command psql -ErrorAction SilentlyContinue
-    $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
-        Get-ChildItem -Path "C:\Program Files\PostgreSQL" -Recurse -Filter "psql.exe" -ErrorAction SilentlyContinue | 
-            Where-Object { $_.FullName -notmatch "pgAdmin" } | 
-            Select-Object -First 1 -ExpandProperty FullName
-    }
-
     if ($psqlPath -and (Test-Path $psqlPath)) {
-        & $psqlPath -U $PostgresUser -d $DbName -c $sql
-        Write-Host "[SUCCESS] Master Admin password updated in PostgreSQL." -ForegroundColor Green
+        & $psqlPath -U $PostgresUser -h $psqlHost -d $DbName -c $sql
+        Write-Host "[SUCCESS] Master Admin password updated in PostgreSQL database '$DbName'." -ForegroundColor Green
     } else {
         Write-Host "[NOTE] psql command not found in PATH." -ForegroundColor Yellow
         Write-Host "Run the following SQL statement in your PostgreSQL console:" -ForegroundColor White

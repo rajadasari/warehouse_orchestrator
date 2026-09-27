@@ -12,6 +12,12 @@ import com.company.warehouse.wes.data.entity.ResourceTemplateEntity;
 import com.company.warehouse.wes.data.repository.ResourceRelationshipRepository;
 import com.company.warehouse.wes.data.repository.ResourceRepository;
 import com.company.warehouse.wes.data.repository.ResourceTemplateRepository;
+import com.company.warehouse.wes.business.resource.composer.EntityComposerMapper;
+import com.company.warehouse.wes.business.resource.composer.archetype.EntityArchetypeRegistry;
+import com.company.warehouse.wes.business.resource.composer.engine.EntityPropertyResolutionEngine;
+import com.company.warehouse.wes.business.resource.composer.model.ComposedEntityTemplate;
+import com.company.warehouse.wes.business.resource.composer.validation.EntityTemplateValidator;
+import com.company.warehouse.wes.business.resource.composer.validation.EntityValidationResult;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -19,12 +25,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+
+import org.platform.resourcemanager.api.ResourceClient;
+import org.platform.resourcemanager.domain.model.ResourceId;
+import org.platform.resourcemanager.domain.model.StandardResourceClass;
 
 @Slf4j
 @Service
@@ -35,6 +47,11 @@ public class ResourceManager implements ResourceConfigProvider {
     private final ResourceTemplateRepository templateRepository;
     private final ResourceRelationshipRepository relationshipRepository;
     private final ObjectMapper objectMapper;
+    private final EntityPropertyResolutionEngine propertyResolutionEngine;
+    private final EntityArchetypeRegistry archetypeRegistry;
+    private final EntityTemplateValidator templateValidator;
+    private final EntityComposerMapper composerMapper;
+    private final ResourceClient resourceClient;
 
     // =========================================================================
     // 1. RESOURCE LIFECYCLE & INHERITANCE
@@ -56,31 +73,76 @@ public class ResourceManager implements ResourceConfigProvider {
                 ? request.getCategory().trim().toUpperCase()
                 : "SOFTWARE";
 
+        String protocol = request.getProtocol() != null && !request.getProtocol().trim().isEmpty()
+                ? request.getProtocol().trim().toLowerCase() : "http";
+        String host = request.getResolvedHost();
+        int port = request.getPort() != null && request.getPort() > 0 ? request.getPort() : 8080;
+        String application = request.getApplication() != null && !request.getApplication().trim().isEmpty()
+                ? request.getApplication().trim() : "WMS";
+        String description = request.getDescription() != null ? request.getDescription().trim() : null;
+        String docUrl = request.getDocumentationUrl() != null ? request.getDocumentationUrl().trim() : null;
+
+        Map<String, Object> tplProps = new HashMap<>();
         if (templateCode != null) {
-            ResourceTemplateEntity tpl = templateRepository.findByTemplateCode(templateCode)
-                    .orElseThrow(() -> new IllegalArgumentException("Resource template '" + templateCode + "' not found"));
+            ResourceTemplateDto tpl = getTemplateByCode(templateCode);
             if (request.getCategory() == null || request.getCategory().trim().isEmpty()) {
                 category = tpl.getCategory();
             }
+            if ((request.getPort() == null || request.getPort() <= 0) && tpl.getDefaultPort() != null) {
+                port = tpl.getDefaultPort();
+            }
+            if ((request.getProtocol() == null || request.getProtocol().trim().isEmpty()) && tpl.getDefaultProtocol() != null) {
+                protocol = tpl.getDefaultProtocol();
+            }
+            if (tpl.getDefaultProperties() != null) {
+                tplProps.putAll(tpl.getDefaultProperties());
+            }
         }
 
+        if (request.getTemplateProperties() != null) {
+            tplProps.putAll(request.getTemplateProperties());
+        }
         Map<String, Object> customProps = request.getResolvedCustomProperties();
-        Map<String, Object> tplProps = request.getTemplateProperties() != null ? request.getTemplateProperties() : Collections.emptyMap();
+        Map<String, Object> methodsConfig = request.getMethodsConfig() != null ? request.getMethodsConfig() : Collections.emptyMap();
 
         ResourceEntity entity = ResourceEntity.builder()
                 .resourceId(resId)
                 .name(request.getName().trim())
+                .description(description)
+                .application(application)
+                .protocol(protocol)
+                .host(host)
+                .port(port)
+                .documentationUrl(docUrl)
                 .type(request.getType().trim().toUpperCase())
                 .category(category)
                 .templateCode(templateCode)
                 .status(request.getStatus() != null ? request.getStatus().trim().toUpperCase() : "ACTIVE")
                 .templateProperties(serializeProperties(tplProps))
                 .customProperties(serializeProperties(customProps))
+                .methodsConfig(serializeProperties(methodsConfig))
                 .build();
 
         ResourceEntity saved = resourceRepository.save(entity);
-        log.info("Created resource '{}' (Category: {}, Type: {}, Template: {})",
-                saved.getResourceId(), saved.getCategory(), saved.getType(), saved.getTemplateCode());
+        log.info("Created resource '{}' (Category: {}, Type: {}, Host: {}:{}, App: {})",
+                saved.getResourceId(), saved.getCategory(), saved.getType(), saved.getHost(), saved.getPort(), saved.getApplication());
+
+        // Register with common-resource micro-kernel
+        try {
+            resourceClient.register(new org.platform.resourcemanager.api.dto.CreateResourceRequest(
+                    "default",
+                    saved.getResourceId(),
+                    saved.getName(),
+                    saved.getType(),
+                    saved.getCategory(),
+                    "",
+                    0.0, 0.0, 0.0,
+                    java.util.Set.of(),
+                    customProps
+            ));
+        } catch (Exception e) {
+            log.warn("Failed to register resource '{}' with ResourceClient domain engine", saved.getResourceId(), e);
+        }
 
         return toDto(saved);
     }
@@ -93,6 +155,26 @@ public class ResourceManager implements ResourceConfigProvider {
         if (request.getName() != null && !request.getName().trim().isEmpty()) {
             entity.setName(request.getName().trim());
         }
+        if (request.getDescription() != null) {
+            entity.setDescription(request.getDescription().trim());
+        }
+        if (request.getApplication() != null && !request.getApplication().trim().isEmpty()) {
+            entity.setApplication(request.getApplication().trim());
+        }
+        if (request.getProtocol() != null && !request.getProtocol().trim().isEmpty()) {
+            entity.setProtocol(request.getProtocol().trim().toLowerCase());
+        }
+        if (request.getHost() != null && !request.getHost().trim().isEmpty()) {
+            entity.setHost(request.getHost().trim());
+        } else if (request.getIp() != null && !request.getIp().trim().isEmpty()) {
+            entity.setHost(request.getIp().trim());
+        }
+        if (request.getPort() != null && request.getPort() > 0) {
+            entity.setPort(request.getPort());
+        }
+        if (request.getDocumentationUrl() != null) {
+            entity.setDocumentationUrl(request.getDocumentationUrl().trim());
+        }
         if (request.getType() != null && !request.getType().trim().isEmpty()) {
             entity.setType(request.getType().trim().toUpperCase());
         }
@@ -104,7 +186,7 @@ public class ResourceManager implements ResourceConfigProvider {
         }
         if (request.getTemplateCode() != null) {
             String tCode = request.getTemplateCode().trim();
-            if (!tCode.isEmpty() && !templateRepository.existsByTemplateCode(tCode)) {
+            if (!tCode.isEmpty() && !templateRepository.existsByTemplateCode(tCode) && !archetypeRegistry.hasArchetype(tCode)) {
                 throw new IllegalArgumentException("Resource template '" + tCode + "' not found");
             }
             entity.setTemplateCode(tCode.isEmpty() ? null : tCode);
@@ -121,6 +203,12 @@ public class ResourceManager implements ResourceConfigProvider {
             Map<String, Object> currentCustom = deserializeProperties(entity.getCustomProperties());
             currentCustom.putAll(resolvedCustom);
             entity.setCustomProperties(serializeProperties(currentCustom));
+        }
+
+        if (request.getMethodsConfig() != null) {
+            Map<String, Object> currentMethods = deserializeProperties(entity.getMethodsConfig());
+            currentMethods.putAll(request.getMethodsConfig());
+            entity.setMethodsConfig(serializeProperties(currentMethods));
         }
 
         ResourceEntity updated = resourceRepository.save(entity);
@@ -215,31 +303,37 @@ public class ResourceManager implements ResourceConfigProvider {
     }
 
     /**
-     * Resolves effective properties: Template Defaults + Resource Overrides + Custom Properties
+     * Resolves effective properties using the 5-tier Entity Property Resolution Engine:
+     * Base Archetype Defaults -> DB Template Defaults -> Instance Template Overrides -> Custom Properties -> Coordinates
      */
     @Transactional(readOnly = true)
     public Map<String, Object> resolveEffectiveProperties(ResourceEntity resource) {
-        Map<String, Object> effective = new HashMap<>();
-
+        Map<String, Object> dbDefaults = null;
         if (resource.getTemplateCode() != null && !resource.getTemplateCode().trim().isEmpty()) {
-            templateRepository.findByTemplateCode(resource.getTemplateCode().trim())
-                    .ifPresent(tpl -> {
-                        Map<String, Object> defaultProps = deserializeProperties(tpl.getDefaultProperties());
-                        effective.putAll(defaultProps);
-                    });
+            dbDefaults = templateRepository.findByTemplateCode(resource.getTemplateCode().trim())
+                    .map(tpl -> deserializeProperties(tpl.getDefaultProperties()))
+                    .orElse(null);
         }
 
         Map<String, Object> tplOverrides = deserializeProperties(resource.getTemplateProperties());
-        effective.putAll(tplOverrides);
-
         Map<String, Object> customProps = deserializeProperties(resource.getCustomProperties());
-        effective.putAll(customProps);
 
-        return effective;
+        return propertyResolutionEngine.resolve(
+                resource.getTemplateCode(),
+                dbDefaults,
+                tplOverrides,
+                customProps,
+                resource.getHost(),
+                resource.getPort(),
+                resource.getProtocol(),
+                resource.getApplication(),
+                resource.getDescription(),
+                resource.getDocumentationUrl()
+        );
     }
 
     // =========================================================================
-    // 2. RESOURCE TEMPLATE MANAGEMENT
+    // 2. RESOURCE TEMPLATE MANAGEMENT (ENTITY COMPOSER INTEGRATED)
     // =========================================================================
 
     @Transactional
@@ -249,20 +343,15 @@ public class ResourceManager implements ResourceConfigProvider {
             throw new IllegalArgumentException("Template with code '" + code + "' already exists");
         }
 
-        ResourceTemplateEntity entity = ResourceTemplateEntity.builder()
-                .templateCode(code)
-                .templateName(dto.getTemplateName().trim())
-                .category(dto.getCategory().trim().toUpperCase())
-                .resourceType(dto.getResourceType().trim().toUpperCase())
-                .communicationProtocol(dto.getCommunicationProtocol().trim().toUpperCase())
-                .propertySchema(serializeList(dto.getPropertySchema()))
-                .defaultProperties(serializeProperties(dto.getDefaultProperties()))
-                .supportedCommands(serializeList(dto.getSupportedCommands()))
-                .active(dto.isActive())
-                .build();
+        ComposedEntityTemplate composed = composerMapper.toComposedTemplate(dto);
+        EntityValidationResult validation = templateValidator.validate(composed);
+        if (!validation.isValid()) {
+            throw new IllegalArgumentException("Template validation failed: " + String.join("; ", validation.getErrors()));
+        }
 
+        ResourceTemplateEntity entity = composerMapper.toEntity(composed);
         ResourceTemplateEntity saved = templateRepository.save(entity);
-        log.info("Created resource template '{}'", saved.getTemplateCode());
+        log.info("Created resource template '{}' via Entity Composer", saved.getTemplateCode());
         return toTemplateDto(saved);
     }
 
@@ -274,6 +363,24 @@ public class ResourceManager implements ResourceConfigProvider {
         if (dto.getTemplateName() != null && !dto.getTemplateName().trim().isEmpty()) {
             entity.setTemplateName(dto.getTemplateName().trim());
         }
+        if (dto.getDescription() != null) {
+            entity.setDescription(dto.getDescription().trim());
+        }
+        if (dto.getApplication() != null && !dto.getApplication().trim().isEmpty()) {
+            entity.setApplication(dto.getApplication().trim());
+        }
+        if (dto.getDefaultProtocol() != null && !dto.getDefaultProtocol().trim().isEmpty()) {
+            entity.setDefaultProtocol(dto.getDefaultProtocol().trim().toLowerCase());
+        }
+        if (dto.getDefaultHost() != null && !dto.getDefaultHost().trim().isEmpty()) {
+            entity.setDefaultHost(dto.getDefaultHost().trim());
+        }
+        if (dto.getDefaultPort() != null && dto.getDefaultPort() > 0) {
+            entity.setDefaultPort(dto.getDefaultPort());
+        }
+        if (dto.getDocumentationUrl() != null) {
+            entity.setDocumentationUrl(dto.getDocumentationUrl().trim());
+        }
         if (dto.getCategory() != null && !dto.getCategory().trim().isEmpty()) {
             entity.setCategory(dto.getCategory().trim().toUpperCase());
         }
@@ -282,6 +389,9 @@ public class ResourceManager implements ResourceConfigProvider {
         }
         if (dto.getCommunicationProtocol() != null && !dto.getCommunicationProtocol().trim().isEmpty()) {
             entity.setCommunicationProtocol(dto.getCommunicationProtocol().trim().toUpperCase());
+        }
+        if (dto.getCommunicationMethod() != null && !dto.getCommunicationMethod().trim().isEmpty()) {
+            entity.setCommunicationMethod(dto.getCommunicationMethod().trim().toUpperCase());
         }
         if (dto.getPropertySchema() != null) {
             entity.setPropertySchema(serializeList(dto.getPropertySchema()));
@@ -292,6 +402,9 @@ public class ResourceManager implements ResourceConfigProvider {
         if (dto.getSupportedCommands() != null) {
             entity.setSupportedCommands(serializeList(dto.getSupportedCommands()));
         }
+        if (dto.getMethodsSchema() != null) {
+            entity.setMethodsSchema(serializeList(dto.getMethodsSchema()));
+        }
         entity.setActive(dto.isActive());
 
         ResourceTemplateEntity updated = templateRepository.save(entity);
@@ -301,34 +414,118 @@ public class ResourceManager implements ResourceConfigProvider {
 
     @Transactional(readOnly = true)
     public ResourceTemplateDto getTemplateByCode(String templateCode) {
-        return templateRepository.findByTemplateCode(templateCode.trim().toUpperCase())
-                .map(this::toTemplateDto)
+        String cleanCode = templateCode.trim().toUpperCase();
+        return templateRepository.findByTemplateCode(cleanCode)
+                .map(e -> {
+                    ResourceTemplateDto dto = toTemplateDto(e);
+                    if (archetypeRegistry.hasArchetype(cleanCode)) {
+                        dto.setSystemTemplate(true);
+                    }
+                    return dto;
+                })
+                .or(() -> archetypeRegistry.getTemplate(cleanCode).map(tpl -> {
+                    ResourceTemplateDto dto = composerMapper.toDto(tpl);
+                    dto.setSystemTemplate(true);
+                    return dto;
+                }))
                 .orElseThrow(() -> new IllegalArgumentException("Template not found: " + templateCode));
     }
 
     @Transactional(readOnly = true)
     public List<ResourceTemplateDto> getAllTemplates(String category) {
-        List<ResourceTemplateEntity> list;
+        List<ResourceTemplateEntity> dbList;
         if (category != null && !category.trim().isEmpty()) {
-            list = templateRepository.findByCategoryIgnoreCase(category.trim());
+            dbList = templateRepository.findByCategoryIgnoreCase(category.trim());
         } else {
-            list = templateRepository.findAll();
+            dbList = templateRepository.findAll();
         }
-        return list.stream().map(this::toTemplateDto).toList();
+
+        Map<String, ResourceTemplateDto> merged = new LinkedHashMap<>();
+        for (ResourceTemplateEntity e : dbList) {
+            ResourceTemplateDto dto = toTemplateDto(e);
+            if (archetypeRegistry.hasArchetype(e.getTemplateCode())) {
+                dto.setSystemTemplate(true);
+            }
+            merged.put(dto.getTemplateCode().toUpperCase(), dto);
+        }
+
+        // Overlay code-defined platform standard archetypes if not present in DB
+        List<com.company.warehouse.wes.business.resource.composer.archetype.EntityArchetype> archetypes =
+                (category != null && !category.trim().isEmpty())
+                        ? archetypeRegistry.getByCategory(category)
+                        : archetypeRegistry.getAllArchetypes();
+
+        for (com.company.warehouse.wes.business.resource.composer.archetype.EntityArchetype a : archetypes) {
+            String code = a.getArchetypeCode().trim().toUpperCase();
+            if (!merged.containsKey(code)) {
+                ResourceTemplateDto dto = composerMapper.toDto(a.toTemplate());
+                dto.setSystemTemplate(true);
+                merged.put(code, dto);
+            }
+        }
+
+        return new ArrayList<>(merged.values());
     }
 
     @Transactional
     public void deleteTemplate(String templateCode) {
-        ResourceTemplateEntity entity = templateRepository.findByTemplateCode(templateCode.trim().toUpperCase())
+        String cleanCode = templateCode.trim().toUpperCase();
+        if (archetypeRegistry.hasArchetype(cleanCode)) {
+            throw new IllegalStateException("Cannot delete standard platform template '" + cleanCode + "'");
+        }
+
+        ResourceTemplateEntity entity = templateRepository.findByTemplateCode(cleanCode)
                 .orElseThrow(() -> new IllegalArgumentException("Template not found: " + templateCode));
 
-        List<ResourceEntity> using = resourceRepository.findByTemplateCodeIgnoreCase(templateCode.trim().toUpperCase());
+        List<ResourceEntity> using = resourceRepository.findByTemplateCodeIgnoreCase(cleanCode);
         if (!using.isEmpty()) {
-            throw new IllegalStateException("Cannot delete template '" + templateCode + "' because " + using.size() + " resources are using it");
+            throw new IllegalStateException("Cannot delete template '" + cleanCode + "' because " + using.size() + " resources are using it");
         }
 
         templateRepository.delete(entity);
         log.info("Deleted resource template '{}'", templateCode);
+    }
+
+    @Transactional(readOnly = true)
+    public com.company.warehouse.wes.api.dto.resource.TemplatePackageDto exportTemplatePackage(String templateCode) {
+        List<ResourceTemplateDto> templates;
+        if (templateCode != null && !templateCode.trim().isEmpty()) {
+            templates = List.of(getTemplateByCode(templateCode));
+        } else {
+            templates = getAllTemplates(null);
+        }
+
+        return com.company.warehouse.wes.api.dto.resource.TemplatePackageDto.builder()
+                .schemaVersion("1.0.0")
+                .environment("DEVELOPMENT")
+                .exportedBy("System Admin")
+                .exportedAt(java.time.Instant.now())
+                .templates(templates)
+                .build();
+    }
+
+    @Transactional
+    public List<ResourceTemplateDto> importTemplatePackage(com.company.warehouse.wes.api.dto.resource.TemplatePackageDto pkg, boolean overwriteExisting) {
+        if (pkg == null || pkg.getTemplates() == null || pkg.getTemplates().isEmpty()) {
+            throw new IllegalArgumentException("Template package contains no templates to import");
+        }
+
+        List<ResourceTemplateDto> imported = new java.util.ArrayList<>();
+        for (ResourceTemplateDto dto : pkg.getTemplates()) {
+            String code = dto.getTemplateCode().trim().toUpperCase();
+            if (templateRepository.existsByTemplateCode(code)) {
+                if (overwriteExisting) {
+                    imported.add(updateTemplate(code, dto));
+                    log.info("Overwrote existing template '{}' from package import", code);
+                } else {
+                    log.info("Skipped existing template '{}' (overwriteExisting=false)", code);
+                }
+            } else {
+                imported.add(createTemplate(dto));
+                log.info("Imported new template '{}' from package", code);
+            }
+        }
+        return imported;
     }
 
     // =========================================================================
@@ -362,6 +559,20 @@ public class ResourceManager implements ResourceConfigProvider {
 
         ResourceRelationshipEntity saved = relationshipRepository.save(entity);
         log.info("Created resource relationship '{}' --[{}]--> '{}'", sourceId, relType, targetId);
+
+        // Sync with common-resource OperationalGraph
+        try {
+            org.platform.resourcemanager.domain.topology.RelationshipType graphRelType = 
+                    org.platform.resourcemanager.domain.topology.RelationshipType.valueOf(relType);
+            resourceClient.link(
+                    ResourceId.of(sourceId),
+                    ResourceId.of(targetId),
+                    graphRelType
+            );
+        } catch (Exception e) {
+            log.debug("Relationship type '{}' not directly mapped to OperationalGraph", relType);
+        }
+
         return toRelationshipDto(saved);
     }
 
@@ -424,21 +635,58 @@ public class ResourceManager implements ResourceConfigProvider {
         else if (effectiveProps.containsKey("host")) ip = String.valueOf(effectiveProps.get("host"));
         else if (effectiveProps.containsKey("plcIp")) ip = String.valueOf(effectiveProps.get("plcIp"));
 
+        Map<String, Object> methodsConfig = deserializeProperties(entity.getMethodsConfig());
+        List<Map<String, Object>> effectiveMethods = resolveEffectiveMethods(entity);
+
+        String host = entity.getHost();
+        if ((host == null || host.isEmpty() || host.equals("127.0.0.1")) && ip != null && !ip.equals("127.0.0.1")) {
+            host = ip;
+        }
+
         return ResourceResponseDto.builder()
                 .id(entity.getId())
                 .resourceId(entity.getResourceId())
                 .name(entity.getName())
+                .description(entity.getDescription())
+                .application(entity.getApplication())
+                .protocol(entity.getProtocol())
+                .host(host)
+                .port(entity.getPort())
+                .documentationUrl(entity.getDocumentationUrl())
                 .type(entity.getType())
                 .category(entity.getCategory())
                 .templateCode(entity.getTemplateCode())
                 .status(entity.getStatus())
-                .ip(ip)
+                .ip(host)
                 .templateProperties(tplProps)
                 .customProperties(customProps)
                 .effectiveProperties(effectiveProps)
+                .methodsConfig(methodsConfig)
+                .effectiveMethods(effectiveMethods)
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> resolveEffectiveMethods(ResourceEntity resource) {
+        List<Map<String, Object>> methods = new java.util.ArrayList<>();
+        if (resource.getTemplateCode() != null && !resource.getTemplateCode().trim().isEmpty()) {
+            String tCode = resource.getTemplateCode().trim().toUpperCase();
+            templateRepository.findByTemplateCode(tCode)
+                    .ifPresentOrElse(
+                            tpl -> methods.addAll(deserializeList(tpl.getMethodsSchema())),
+                            () -> archetypeRegistry.getTemplate(tCode).ifPresent(arch -> {
+                                ResourceTemplateDto dto = composerMapper.toDto(arch);
+                                if (dto.getMethodsSchema() != null) {
+                                    for (Object m : dto.getMethodsSchema()) {
+                                        methods.add(objectMapper.convertValue(m, new TypeReference<Map<String, Object>>() {}));
+                                    }
+                                }
+                            })
+                    );
+        }
+        return methods;
     }
 
     private ResourceTemplateDto toTemplateDto(ResourceTemplateEntity entity) {
@@ -446,12 +694,20 @@ public class ResourceManager implements ResourceConfigProvider {
                 .id(entity.getId())
                 .templateCode(entity.getTemplateCode())
                 .templateName(entity.getTemplateName())
+                .description(entity.getDescription())
+                .application(entity.getApplication())
+                .defaultProtocol(entity.getDefaultProtocol())
+                .defaultHost(entity.getDefaultHost())
+                .defaultPort(entity.getDefaultPort())
+                .documentationUrl(entity.getDocumentationUrl())
                 .category(entity.getCategory())
                 .resourceType(entity.getResourceType())
                 .communicationProtocol(entity.getCommunicationProtocol())
+                .communicationMethod(entity.getCommunicationMethod() != null ? entity.getCommunicationMethod() : entity.getCommunicationProtocol())
                 .propertySchema(deserializeList(entity.getPropertySchema()))
                 .defaultProperties(deserializeProperties(entity.getDefaultProperties()))
                 .supportedCommands(deserializeStringList(entity.getSupportedCommands()))
+                .methodsSchema(deserializeList(entity.getMethodsSchema()))
                 .active(entity.isActive())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())

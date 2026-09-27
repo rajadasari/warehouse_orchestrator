@@ -15,7 +15,8 @@ import java.util.UUID;
 
 /**
  * Universal ClientHttpRequestInterceptor for external software integrations.
- * Automatically injects Bearer authorization and handles token invalidation upon HTTP 401.
+ * Automatically injects Bearer authorization and handles token invalidation
+ * upon HTTP 401.
  */
 @Slf4j
 @Component
@@ -25,7 +26,8 @@ public class AuthInterceptor implements ClientHttpRequestInterceptor {
     private final TokenManager tokenManager;
 
     @Override
-    public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution) throws IOException {
+    public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
+            throws IOException {
         String targetResId = request.getHeaders().getFirst("X-Target-Resource-Id");
         String token = tokenManager.getBearerToken(targetResId);
         if (token != null && !token.trim().isEmpty()) {
@@ -44,9 +46,11 @@ public class AuthInterceptor implements ClientHttpRequestInterceptor {
             } else if (!request.getHeaders().containsKey("Authentication")) {
                 request.getHeaders().set("Authentication", token);
             }
-            log.debug("Injected authentication token for outbound request to {} (Resource: {})", request.getURI(), targetResId);
+            log.debug("Injected authentication token for outbound request to {} (Resource: {})", request.getURI(),
+                    targetResId);
         } else {
-            log.warn("No authentication token available for resource '{}'. Outbound request to {} may fail with 401.", targetResId, request.getURI());
+            log.warn("No authentication token available for resource '{}'. Outbound request to {} may fail with 401.",
+                    targetResId, request.getURI());
         }
 
         if (!request.getHeaders().containsKey("X-Correlation-ID")) {
@@ -60,7 +64,8 @@ public class AuthInterceptor implements ClientHttpRequestInterceptor {
 
         // If target software returns 401 Unauthorized, invalidate cached token
         if (response.getStatusCode().value() == 401) {
-            log.warn("Target software returned 401 Unauthorized for resource '{}' on {}. Invalidating cached token.", targetResId, request.getURI());
+            log.warn("Target software returned 401 Unauthorized for resource '{}' on {}. Invalidating cached token.",
+                    targetResId, request.getURI());
             tokenManager.invalidateToken(targetResId);
         }
 

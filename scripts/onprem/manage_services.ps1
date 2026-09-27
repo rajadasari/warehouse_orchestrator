@@ -29,7 +29,7 @@ param(
 $servicesOrderForward = @(
     @{ id = "warehouse-auth";    name = "Auth Service";    port = 8085; log = "auth-service" },
     @{ id = "warehouse-wcs";     name = "WCS Service";     port = 8083; log = "wcs-service" },
-    @{ id = "warehouse-asrs";    name = "ASRS Service";    port = 8086; log = "asrs-wcs-service" },
+    @{ id = "warehouse-asrs";    name = "ASRS Service";    port = 8087; log = "asrs-wcs-service" },
     @{ id = "warehouse-fleet";   name = "Fleet Service";   port = 8084; log = "fleet-service" },
     @{ id = "warehouse-wms";     name = "WMS Service";     port = 8082; log = "wms-service" },
     @{ id = "warehouse-wes";     name = "WES Service";     port = 8086; log = "wes-service" },
@@ -111,20 +111,26 @@ switch ($Action) {
         $logsDir = Join-Path $InstallPath "logs"
         if ($Service -eq "all") {
             Write-Host "`nListing latest log files in ${logsDir}:" -ForegroundColor Cyan
-            Get-ChildItem -Path $logsDir -Filter "*.log" | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
+            Get-ChildItem -Path $logsDir -Recurse -Filter "*.log" | Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize
             Write-Host "To follow a specific service log, run: .\manage_services.ps1 -Action logs -Service <name>" -ForegroundColor Yellow
         } else {
             $matched = $servicesOrderForward | Where-Object { $_.log -match $Service } | Select-Object -First 1
             if ($matched) {
-                $targetLog = Join-Path $logsDir "$($matched.log).out.log"
-                if (-not (Test-Path $targetLog)) {
-                    $targetLog = Join-Path $logsDir "$($matched.log).log"
+                $targetLog = (Get-ChildItem -Path $svcLogDir -Filter "$($matched.log)*.out.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName)
+                if (-not $targetLog -or (-not (Test-Path $targetLog))) {
+                    $targetLog = Join-Path $svcLogDir "$($matched.log).out.log"
                 }
-                if (Test-Path $targetLog) {
+                if (-not (Test-Path $targetLog)) {
+                    $targetLog = (Get-ChildItem -Path $svcLogDir -Filter "$($matched.log)*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName)
+                }
+                if (-not $targetLog -or (-not (Test-Path $targetLog))) {
+                    $targetLog = Join-Path $svcLogDir "$($matched.log).wrapper.log"
+                }
+                if ($targetLog -and (Test-Path $targetLog)) {
                     Write-Host "Tailing log file: $targetLog (Press Ctrl+C to stop)..." -ForegroundColor Cyan
                     Get-Content -Path $targetLog -Tail 50 -Wait
                 } else {
-                    Write-Warning "Log file not found at: $targetLog"
+                    Write-Warning "Log file not found in: $svcLogDir"
                 }
             } else {
                 Write-Warning "No matching service found for '$Service'."

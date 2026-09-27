@@ -12,8 +12,11 @@ import {
   Send,
   Network,
   GitMerge,
+  Database,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  FileCode,
+  Sliders
 } from 'lucide-react';
 
 interface SideNavBarProps {
@@ -28,11 +31,19 @@ interface SideNavBarProps {
   onToggleCollapse?: () => void;
 }
 
+interface NavChildConfig {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  isActive: (active: string) => boolean;
+}
+
 interface NavItemConfig {
   id: string;
   label: string;
   icon: React.ReactNode;
   isActive: (active: string) => boolean;
+  children?: NavChildConfig[];
 }
 
 interface NavSection {
@@ -94,10 +105,24 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
           isActive: (a) => a === 'configuration' || a === 'master-data'
         },
         {
-          id: 'resource-config',
-          label: 'Resource Config',
+          id: 'resource-manager',
+          label: 'Resource Manager',
           icon: <Server size={17} />,
-          isActive: (a) => a === 'resource-config'
+          isActive: (a) => a === 'resource-manager' || a === 'resource-config' || a === 'template-definer' || a === 'resource-composer',
+          children: [
+            {
+              id: 'template-definer',
+              label: 'Template Definer',
+              icon: <FileCode size={15} />,
+              isActive: (a) => a === 'template-definer'
+            },
+            {
+              id: 'resource-composer',
+              label: 'Resource Composer',
+              icon: <Sliders size={15} />,
+              isActive: (a) => a === 'resource-composer' || a === 'resource-manager' || a === 'resource-config'
+            }
+          ]
         },
         {
           id: 'api-mappings',
@@ -110,6 +135,12 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
           label: 'Workflows',
           icon: <GitMerge size={17} />,
           isActive: (a) => a === 'workflows'
+        },
+        {
+          id: 'database-config',
+          label: 'Database Settings',
+          icon: <Database size={17} />,
+          isActive: (a) => a === 'database-config'
         }
       ]
     },
@@ -367,43 +398,107 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
               {/* Section Items */}
               {section.items.map(item => {
                 const active = item.isActive(activeItem);
+                const hasChildren = Boolean(item.children && item.children.length > 0);
                 return (
-                  <button
-                    key={item.id}
-                    title={isCollapsed ? item.label : undefined}
-                    onClick={() => onSelectNav && onSelectNav(item.id)}
-                    style={getNavButtonStyle(active)}
-                    onMouseEnter={(e) => {
-                      if (!active) {
-                        e.currentTarget.style.backgroundColor = isLight ? 'rgba(255, 255, 255, 0.14)' : 'var(--bg-surface-subtle)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!active) {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                      }
-                    }}
-                  >
-                    <span style={{ color: getIconColor(active), display: 'flex', alignItems: 'center' }}>
-                      {item.icon}
-                    </span>
-
-                    {!isCollapsed && (
-                      <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.label}
+                  <React.Fragment key={item.id}>
+                    <button
+                      title={isCollapsed ? item.label : undefined}
+                      onClick={() => onSelectNav && onSelectNav(item.id)}
+                      style={getNavButtonStyle(active)}
+                      onMouseEnter={(e) => {
+                        if (!active) {
+                          e.currentTarget.style.backgroundColor = isLight ? 'rgba(255, 255, 255, 0.14)' : 'var(--bg-surface-subtle)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!active) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }
+                      }}
+                    >
+                      <span style={{ color: getIconColor(active), display: 'flex', alignItems: 'center' }}>
+                        {item.icon}
                       </span>
-                    )}
 
-                    {!isCollapsed && active && (
-                      <span style={{
-                        width: '6px',
-                        height: '6px',
-                        minWidth: '6px',
-                        borderRadius: '50%',
-                        backgroundColor: isLight ? '#153d77' : 'var(--color-primary-500)'
-                      }} />
+                      {!isCollapsed && (
+                        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {item.label}
+                        </span>
+                      )}
+
+                      {!isCollapsed && active && (
+                        <span style={{
+                          width: '6px',
+                          height: '6px',
+                          minWidth: '6px',
+                          borderRadius: '50%',
+                          backgroundColor: isLight ? '#153d77' : 'var(--color-primary-500)'
+                        }} />
+                      )}
+                    </button>
+
+                    {/* Render Child Sub-Items (e.g. Template Definer, Resource Composer) */}
+                    {!isCollapsed && hasChildren && item.children && (
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '2px',
+                        paddingLeft: '14px',
+                        marginLeft: '12px',
+                        borderLeft: isLight ? '1px solid rgba(255, 255, 255, 0.25)' : '1px solid var(--border-default)',
+                        marginTop: '2px',
+                        marginBottom: '4px'
+                      }}>
+                        {item.children.map(child => {
+                          const childActive = child.isActive(activeItem);
+                          return (
+                            <button
+                              key={child.id}
+                              onClick={() => onSelectNav && onSelectNav(child.id)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                width: '100%',
+                                padding: '6px 10px',
+                                borderRadius: '7px',
+                                backgroundColor: childActive 
+                                  ? (isLight ? '#FFFFFF' : 'var(--bg-sidebar-active)') 
+                                  : 'transparent',
+                                color: childActive 
+                                  ? (isLight ? '#153d77' : 'var(--text-sidebar-active)') 
+                                  : (isLight ? 'rgba(255, 255, 255, 0.85)' : 'var(--text-secondary)'),
+                                fontWeight: childActive ? 600 : 500,
+                                fontSize: '11.5px',
+                                border: childActive ? '1px solid rgba(255,255,255,0.3)' : '1px solid transparent',
+                                textAlign: 'left',
+                                cursor: 'pointer',
+                                minHeight: '36px',
+                                transition: 'all var(--transition-fast)'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!childActive) {
+                                  e.currentTarget.style.backgroundColor = isLight ? 'rgba(255, 255, 255, 0.12)' : 'var(--bg-surface-subtle)';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!childActive) {
+                                  e.currentTarget.style.backgroundColor = 'transparent';
+                                }
+                              }}
+                            >
+                              <span style={{ color: childActive ? (isLight ? '#153d77' : 'var(--color-primary-500)') : 'currentColor' }}>
+                                {child.icon}
+                              </span>
+                              <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {child.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
-                  </button>
+                  </React.Fragment>
                 );
               })}
             </React.Fragment>

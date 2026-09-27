@@ -1,179 +1,182 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Key, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  Zap 
-} from 'lucide-react';
-import { 
-  resourceService, 
-  ResourceItem, 
-  CreateResourcePayload 
-} from '../../../services/resourceService';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Key, Lock, Zap, ShieldCheck, CheckCircle2, Info } from 'lucide-react';
+import { ResourceItem, resourceService } from '../../../services/resourceService';
 import { Modal } from '../../../components/common/Modal';
 import { Button } from '../../../components/common/Button';
 import { Alert } from '../../../components/common/Alert';
+import { JsonViewer } from '../../../components/common/JsonViewer';
 
 export interface ResourceMethodConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
   resource: ResourceItem | null;
-  onSuccess: (msg: string) => void;
-  onRefresh: () => Promise<void>;
+  onSuccess?: (msg: string) => void;
+  onRefresh?: () => Promise<void>;
 }
 
 export const ResourceMethodConfigModal: React.FC<ResourceMethodConfigModalProps> = ({
   isOpen,
   onClose,
-  resource,
-  onSuccess,
-  onRefresh
+  resource
 }) => {
   if (!resource) return null;
 
   const [authType, setAuthType] = useState<string>('OAUTH2_BEARER');
-  const [tokenPath, setTokenPath] = useState<string>('/WMS.Api/api/authentication');
+  const [tokenPath, setTokenPath] = useState<string>('/api/authentication');
+  const [tokenResponseField, setTokenResponseField] = useState<string>('accessToken');
 
-  // Client ID
-  const [clientIdMode, setClientIdMode] = useState<'PROPERTY' | 'DIRECT'>('PROPERTY');
-  const [clientIdProp, setClientIdProp] = useState<string>('clientId');
-  const [clientIdDirect, setClientIdDirect] = useState<string>('');
-
-  // Client Secret
-  const [clientSecretMode, setClientSecretMode] = useState<'PROPERTY' | 'DIRECT'>('PROPERTY');
-  const [clientSecretProp, setClientSecretProp] = useState<string>('clientSecret');
-  const [clientSecretDirect, setClientSecretDirect] = useState<string>('');
-
-  // API Key
+  // API Key header & selected property
   const [apiKeyHeader, setApiKeyHeader] = useState<string>('X-API-KEY');
-  const [apiKeyMode, setApiKeyMode] = useState<'PROPERTY' | 'DIRECT'>('DIRECT');
-  const [apiKeyProp, setApiKeyProp] = useState<string>('apiKey');
-  const [apiKeyDirect, setApiKeyDirect] = useState<string>('');
+  const [apiKeyProperty, setApiKeyProperty] = useState<string>('');
 
-  // Basic Auth
-  const [basicUserMode, setBasicUserMode] = useState<'PROPERTY' | 'DIRECT'>('DIRECT');
-  const [basicUserProp, setBasicUserProp] = useState<string>('username');
-  const [basicUserDirect, setBasicUserDirect] = useState<string>('');
-  const [basicPassMode, setBasicPassMode] = useState<'PROPERTY' | 'DIRECT'>('DIRECT');
-  const [basicPassProp, setBasicPassProp] = useState<string>('password');
-  const [basicPassDirect, setBasicPassDirect] = useState<string>('');
+  // Basic Auth: selected username & password properties
+  const [basicUserProperty, setBasicUserProperty] = useState<string>('');
+  const [basicPassProperty, setBasicPassProperty] = useState<string>('');
 
-  const [showSecret, setShowSecret] = useState<boolean>(false);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isTesting, setIsTesting] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; tokenSnippet?: string } | null>(null);
 
-  // Initialize form whenever resource changes or modal opens
+  // Extract ONLY the properties explicitly marked for authentication
+  const authProperties = useMemo(() => {
+    if (!resource) return [];
+    const props = resource.customProperties || {};
+    const propList: Array<{ key: string; value: string; isSecret: boolean; useForAuth: boolean }> = [];
+    const seen = new Set<string>();
+
+    const existingAuth: Record<string, unknown> = (props.auth && typeof props.auth === 'object')
+      ? (props.auth as Record<string, unknown>)
+      : {};
+
+    const reqPayload: Record<string, unknown> = (existingAuth.requestPayload && typeof existingAuth.requestPayload === 'object')
+      ? (existingAuth.requestPayload as Record<string, unknown>)
+      : {};
+
+    // 1. If customProperties.properties exists (user configured properties table),
+    // strictly respect useForAuth: true
+    if (Array.isArray(props.properties)) {
+      props.properties.forEach((p: Record<string, unknown>) => {
+        if (p && p.key && typeof p.key === 'string' && !seen.has(p.key)) {
+          const isExplicitlyMarkedForAuth = Boolean(p.useForAuth);
+          if (isExplicitlyMarkedForAuth) {
+            seen.add(p.key);
+            propList.push({
+              key: p.key,
+              value: p.value !== undefined ? String(p.value) : '',
+              isSecret: Boolean(p.isSecret),
+              useForAuth: true
+            });
+          }
+        }
+      });
+    } else {
+      // 2. Legacy fallback only when customProperties.properties array is absent:
+      // check requestPayload keys configured under customProperties.auth.requestPayload
+      Object.keys(reqPayload).forEach(k => {
+        if (!seen.has(k)) {
+          seen.add(k);
+          propList.push({
+            key: k,
+            value: String(reqPayload[k] ?? ''),
+            isSecret: k.toLowerCase().includes('secret') || k.toLowerCase().includes('pass'),
+            useForAuth: true
+          });
+        }
+      });
+    }
+
+    return propList;
+  }, [resource]);
+
+  // Read saved integration configuration when resource opens
   useEffect(() => {
     if (!resource) return;
 
     setTestResult(null);
-    setShowSecret(false);
-
     const props = resource.customProperties || {};
-    const existingAuth: Record<string, string | undefined> = (props.auth && typeof props.auth === 'object')
-      ? (props.auth as Record<string, string | undefined>)
+    const existingAuth: Record<string, unknown> = (props.auth && typeof props.auth === 'object')
+      ? (props.auth as Record<string, unknown>)
       : {};
 
-    const detectedMethod = existingAuth.method 
-      || props.authMethod 
-      || ((props.clientId || props.clientSecret) ? 'OAUTH2_BEARER' : 'OAUTH2_BEARER');
-    setAuthType(String(detectedMethod));
+    const detectedMethod = String(
+      existingAuth.method ||
+      props.authMethod ||
+      ((props.clientId || props.clientSecret) ? 'OAUTH2_BEARER' : 'NONE')
+    );
+    setAuthType(detectedMethod);
 
     setTokenPath(String(props.tokenPath || existingAuth.tokenPath || '/WMS.Api/api/authentication'));
-
-    // Client ID
-    if (existingAuth.clientIdProperty && props[existingAuth.clientIdProperty] !== undefined) {
-      setClientIdMode('PROPERTY');
-      setClientIdProp(existingAuth.clientIdProperty);
-      setClientIdDirect(String(props[existingAuth.clientIdProperty] || ''));
-    } else if (props.clientId !== undefined) {
-      setClientIdMode('PROPERTY');
-      setClientIdProp('clientId');
-      setClientIdDirect(String(props.clientId));
-    } else {
-      setClientIdMode('DIRECT');
-      setClientIdDirect('');
-      setClientIdProp('clientId');
-    }
-
-    // Client Secret
-    if (existingAuth.clientSecretProperty && props[existingAuth.clientSecretProperty] !== undefined) {
-      setClientSecretMode('PROPERTY');
-      setClientSecretProp(existingAuth.clientSecretProperty);
-      setClientSecretDirect(String(props[existingAuth.clientSecretProperty] || ''));
-    } else if (props.clientSecret !== undefined) {
-      setClientSecretMode('PROPERTY');
-      setClientSecretProp('clientSecret');
-      setClientSecretDirect(String(props.clientSecret));
-    } else {
-      setClientSecretMode('DIRECT');
-      setClientSecretDirect('');
-      setClientSecretProp('clientSecret');
-    }
+    setTokenResponseField(String(props.tokenResponseField || existingAuth.tokenResponseField || 'accessToken'));
 
     // API Key
     setApiKeyHeader(String(props.apiKeyHeader || existingAuth.header || 'X-API-KEY'));
-    if (props.apiKeyValue !== undefined) {
-      setApiKeyMode('PROPERTY');
-      setApiKeyProp('apiKeyValue');
-      setApiKeyDirect(String(props.apiKeyValue));
-    } else {
-      setApiKeyMode('DIRECT');
-      setApiKeyDirect(String(existingAuth.key || ''));
-    }
+    const initialApiKeyProp = String(existingAuth.keyProperty || props.apiKeyProperty || '');
+    setApiKeyProperty(initialApiKeyProp || (authProperties[0]?.key || ''));
 
     // Basic Auth
-    if (props.username !== undefined) {
-      setBasicUserMode('PROPERTY');
-      setBasicUserProp('username');
-      setBasicUserDirect(String(props.username));
-    } else {
-      setBasicUserMode('DIRECT');
-      setBasicUserDirect(String(existingAuth.username || ''));
-    }
+    const userProp = String(existingAuth.userProperty || props.basicUserProperty || '');
+    const passProp = String(existingAuth.passProperty || props.basicPassProperty || '');
+    setBasicUserProperty(userProp || (authProperties.find(p => p.key.toLowerCase().includes('user'))?.key || 'username'));
+    setBasicPassProperty(passProp || (authProperties.find(p => p.key.toLowerCase().includes('pass'))?.key || 'password'));
+  }, [resource, isOpen, authProperties]);
 
-    if (props.password !== undefined) {
-      setBasicPassMode('PROPERTY');
-      setBasicPassProp('password');
-      setBasicPassDirect(String(props.password));
-    } else {
-      setBasicPassMode('DIRECT');
-      setBasicPassDirect(String(existingAuth.password || ''));
-    }
-  }, [resource, isOpen]);
+  // Read-only JSON payload preview constructed from auth-marked properties
+  const authPayloadPreview = useMemo(() => {
+    const payload: Record<string, unknown> = {};
+    authProperties.forEach(p => {
+      payload[p.key] = p.isSecret ? '••••••••' : (p.value || '');
+    });
+    return payload;
+  }, [authProperties]);
 
-  // Direct Authentication Test
+  // Execute test validation
   const handleTestAuth = async () => {
     if (!resource) return;
     setIsTesting(true);
     setTestResult(null);
 
     try {
-      const updatedProps: Record<string, any> = { ...(resource.customProperties || {}) };
-      const resolvedClientId = clientIdMode === 'PROPERTY' 
-        ? (updatedProps[clientIdProp] !== undefined ? String(updatedProps[clientIdProp]) : clientIdDirect)
-        : clientIdDirect;
+      const updatedProps: Record<string, unknown> = { ...(resource.customProperties || {}) };
+      const baseUrl = resource.ip || String(updatedProps.ip || updatedProps.baseUrl || '');
 
-      const resolvedClientSecret = clientSecretMode === 'PROPERTY'
-        ? (updatedProps[clientSecretProp] !== undefined ? String(updatedProps[clientSecretProp]) : clientSecretDirect)
-        : clientSecretDirect;
+      const authPayload: Record<string, unknown> = {};
+      authProperties.forEach(p => {
+        authPayload[p.key] = p.value;
+      });
 
-      const baseUrl = resource.ip || updatedProps.ip || updatedProps.baseUrl || '';
+      let userVal = '';
+      let passVal = '';
+      if (basicUserProperty) {
+        const found = authProperties.find(p => p.key === basicUserProperty);
+        userVal = found ? found.value : String(updatedProps[basicUserProperty] || '');
+      }
+      if (basicPassProperty) {
+        const found = authProperties.find(p => p.key === basicPassProperty);
+        passVal = found ? found.value : String(updatedProps[basicPassProperty] || '');
+      }
+
+      let apiVal = '';
+      if (apiKeyProperty) {
+        const found = authProperties.find(p => p.key === apiKeyProperty);
+        apiVal = found ? found.value : String(updatedProps[apiKeyProperty] || '');
+      }
 
       const res = await resourceService.testAuthConnection({
         resourceId: resource.resourceId,
         baseUrl: baseUrl,
         tokenPath: tokenPath,
-        clientId: resolvedClientId,
-        clientSecret: resolvedClientSecret
+        tokenField: tokenResponseField,
+        authMethod: authType,
+        authPayload: authType === 'OAUTH2_BEARER' ? authPayload : undefined,
+        apiKeyHeader: apiKeyHeader,
+        apiKeyValue: apiVal,
+        username: userVal,
+        password: passVal
       });
 
       if (res.success) {
         setTestResult({
           success: true,
-          message: res.message || 'Authentication verified successfully! Active token acquired and cached in memory.',
+          message: res.message || 'Authentication verified successfully! Token acquired and cached in memory.',
           tokenSnippet: res.token ? res.token.substring(0, 48) + '...' : undefined
         });
       } else {
@@ -182,118 +185,29 @@ export const ResourceMethodConfigModal: React.FC<ResourceMethodConfigModalProps>
           message: res.error || res.message || 'Authentication failed. Check credentials and endpoint URL.'
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       setTestResult({
         success: false,
-        message: err.message || 'Authentication failed. Check endpoint URL and credentials.'
+        message: msg || 'Authentication test failed. Check host reachability and credentials.'
       });
     } finally {
       setIsTesting(false);
     }
   };
 
-  // Save Authentication Configuration
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!resource) return;
-
-    setIsSaving(true);
-    try {
-      const updatedProps: Record<string, any> = { ...(resource.customProperties || {}) };
-
-      if (authType === 'OAUTH2_BEARER') {
-        const resolvedClientId = clientIdMode === 'PROPERTY' 
-          ? (updatedProps[clientIdProp] !== undefined ? updatedProps[clientIdProp] : clientIdDirect)
-          : clientIdDirect;
-
-        const resolvedClientSecret = clientSecretMode === 'PROPERTY'
-          ? (updatedProps[clientSecretProp] !== undefined ? updatedProps[clientSecretProp] : clientSecretDirect)
-          : clientSecretDirect;
-
-        if (resolvedClientId) updatedProps.clientId = resolvedClientId;
-        if (resolvedClientSecret) updatedProps.clientSecret = resolvedClientSecret;
-        if (tokenPath) updatedProps.tokenPath = tokenPath;
-        updatedProps.authMethod = 'OAUTH2_BEARER';
-
-        updatedProps.auth = {
-          method: 'OAUTH2_BEARER',
-          tokenPath: tokenPath,
-          clientIdMode: clientIdMode,
-          clientIdProperty: clientIdMode === 'PROPERTY' ? clientIdProp : undefined,
-          clientIdValue: resolvedClientId,
-          clientSecretMode: clientSecretMode,
-          clientSecretProperty: clientSecretMode === 'PROPERTY' ? clientSecretProp : undefined,
-          clientSecretValue: resolvedClientSecret
-        };
-      } else if (authType === 'API_KEY') {
-        const resolvedKey = apiKeyMode === 'PROPERTY'
-          ? (updatedProps[apiKeyProp] !== undefined ? updatedProps[apiKeyProp] : apiKeyDirect)
-          : apiKeyDirect;
-
-        updatedProps.apiKeyHeader = apiKeyHeader;
-        if (resolvedKey) updatedProps.apiKeyValue = resolvedKey;
-        updatedProps.authMethod = 'API_KEY';
-        updatedProps.auth = {
-          method: 'API_KEY',
-          header: apiKeyHeader,
-          keyMode: apiKeyMode,
-          keyProperty: apiKeyMode === 'PROPERTY' ? apiKeyProp : undefined,
-          keyValue: resolvedKey
-        };
-      } else if (authType === 'BASIC_AUTH') {
-        const resolvedUser = basicUserMode === 'PROPERTY'
-          ? (updatedProps[basicUserProp] !== undefined ? updatedProps[basicUserProp] : basicUserDirect)
-          : basicUserDirect;
-
-        const resolvedPass = basicPassMode === 'PROPERTY'
-          ? (updatedProps[basicPassProp] !== undefined ? updatedProps[basicPassProp] : basicPassDirect)
-          : basicPassDirect;
-
-        if (resolvedUser) updatedProps.username = resolvedUser;
-        if (resolvedPass) updatedProps.password = resolvedPass;
-        updatedProps.authMethod = 'BASIC_AUTH';
-        updatedProps.auth = {
-          method: 'BASIC_AUTH',
-          userMode: basicUserMode,
-          userProperty: basicUserMode === 'PROPERTY' ? basicUserProp : undefined,
-          username: resolvedUser,
-          passMode: basicPassMode,
-          passProperty: basicPassMode === 'PROPERTY' ? basicPassProp : undefined,
-          password: resolvedPass
-        };
-      } else {
-        updatedProps.authMethod = 'NONE';
-        updatedProps.auth = { method: 'NONE' };
-      }
-
-      const payload: CreateResourcePayload = {
-        resourceId: resource.resourceId,
-        name: resource.name,
-        type: resource.type,
-        status: resource.status,
-        ip: resource.ip,
-        customProperties: updatedProps
-      };
-
-      await resourceService.updateResource(resource.resourceId, payload);
-
-      try {
-        const authCheck = await resourceService.authorizeResource(resource.resourceId);
-        if (authCheck.success) {
-          onSuccess(`Authentication configured and active token cached in memory for '${resource.resourceId}'`);
-        } else {
-          onSuccess(`Saved for '${resource.resourceId}'. Note: ${authCheck.error || authCheck.message}`);
-        }
-      } catch {
-        onSuccess(`Authentication method and properties saved for resource '${resource.resourceId}'`);
-      }
-
-      onClose();
-      await onRefresh();
-    } catch (err: any) {
-      alert(`Error saving method configuration: ${err.message}`);
-    } finally {
-      setIsSaving(false);
+  const getMethodLabel = (method: string) => {
+    switch (method) {
+      case 'OAUTH2_BEARER':
+        return 'OAuth 2.0 / Bearer Token (Dynamic Body Authentication)';
+      case 'API_KEY':
+        return 'API Key Header Authentication';
+      case 'BASIC_AUTH':
+        return 'HTTP Basic Authentication (Username & Password)';
+      case 'NONE':
+        return 'No Authentication (Open / Direct Network)';
+      default:
+        return method;
     }
   };
 
@@ -304,515 +218,334 @@ export const ResourceMethodConfigModal: React.FC<ResourceMethodConfigModalProps>
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Key size={18} color="#D97706" />
-          <span>Methods & Authentication Configuration</span>
+          <span>Methods & Authentication Validation</span>
         </div>
       }
-      subtitle={`Resource: ${resource.resourceId} (${resource.name})`}
-      maxWidth="660px"
+      subtitle={`Validation & Testing for: ${resource.resourceId} (${resource.name})`}
+      maxWidth="680px"
       footer={
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px', width: '100%' }}>
-          <Button variant="secondary" onClick={onClose} disabled={isSaving || isTesting}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={handleSave} isLoading={isSaving}>
-            Save Configuration
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+            <Info size={13} />
+            <span>Read-only validation screen. To update parameters, use <strong>Edit Resource</strong>.</span>
+          </div>
+          <Button variant="secondary" onClick={onClose} disabled={isTesting}>
+            Close
           </Button>
         </div>
       }
     >
-      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {/* Method / Protocol Selector */}
-        <div>
-          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>
-            Integration Method & Authentication Protocol
-          </label>
-          <select
-            value={authType}
-            onChange={(e) => {
-              setAuthType(e.target.value);
-              setTestResult(null);
-            }}
-            style={{
-              width: '100%',
-              padding: '9px 12px',
-              borderRadius: '8px',
-              border: '1px solid var(--border-default)',
-              backgroundColor: 'var(--bg-page)',
-              color: 'var(--text-primary)',
-              fontSize: '13px',
-              fontWeight: 600,
-              boxSizing: 'border-box'
-            }}
-          >
-            <option value="OAUTH2_BEARER">OAuth 2.0 / Bearer Token (Logiqs WMS, Cloud API)</option>
-            <option value="API_KEY">API Key / Custom Header (e.g. X-API-KEY)</option>
-            <option value="BASIC_AUTH">HTTP Basic Authentication (Username & Password)</option>
-            <option value="NONE">No Authentication (Open / Internal Network)</option>
-          </select>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {/* Informational Read-Only Header */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '10px 14px',
+          borderRadius: '8px',
+          backgroundColor: 'rgba(217, 119, 6, 0.08)',
+          border: '1px solid rgba(217, 119, 6, 0.25)'
+        }}>
+          <Info size={16} color="#D97706" style={{ flexShrink: 0 }} />
+          <div style={{ fontSize: '12px', color: 'var(--text-primary)', lineHeight: '1.4' }}>
+            This window is configured for <strong>Quick User-Side Validation & Live Testing</strong> only. All parameters below are read-only and reflect active resource settings.
+          </div>
         </div>
 
-        {/* METHOD TYPE: OAUTH2_BEARER */}
+        {/* Integration Method Information (Non-editable) */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          padding: '14px',
+          borderRadius: '8px',
+          border: '1px solid var(--border-default)',
+          backgroundColor: 'var(--bg-surface)'
+        }}>
+          <span style={{ fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)' }}>
+            Integration Method & Authentication Protocol
+          </span>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 12px',
+            borderRadius: '6px',
+            backgroundColor: 'var(--bg-page)',
+            border: '1px solid var(--border-default)'
+          }}>
+            <span style={{
+              display: 'inline-flex',
+              padding: '2px 8px',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontWeight: 700,
+              backgroundColor: authType === 'NONE' ? '#E2E8F0' : 'rgba(37, 99, 235, 0.1)',
+              color: authType === 'NONE' ? '#475569' : '#2563EB'
+            }}>
+              {authType}
+            </span>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              {getMethodLabel(authType)}
+            </span>
+          </div>
+        </div>
+
+        {/* METHOD: OAUTH2_BEARER Read-Only Info */}
         {authType === 'OAUTH2_BEARER' && (
           <div style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '14px',
-            padding: '16px',
-            borderRadius: '10px',
+            gap: '12px',
+            padding: '14px',
+            borderRadius: '8px',
             border: '1px solid var(--border-default)',
             backgroundColor: 'var(--bg-surface-subtle)'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: 'var(--color-primary-600, #2563EB)' }}>
-              <Lock size={14} />
-              <span>OAuth 2.0 Bearer Token Settings</span>
+              <ShieldCheck size={15} />
+              <span>OAuth 2.0 / Bearer Token Parameters (Configured for Authentication)</span>
             </div>
 
-            {/* Token Endpoint URL */}
-            <div>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, marginBottom: '4px' }}>
-                Token Endpoint Path / URL *
-              </label>
-              <input
-                type="text"
-                required
-                value={tokenPath}
-                onChange={(e) => setTokenPath(e.target.value)}
-                placeholder="/WMS.Api/api/authentication"
-                style={{
-                  width: '100%',
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Token Endpoint Path
+                </span>
+                <div style={{
                   padding: '7px 10px',
                   borderRadius: '6px',
                   border: '1px solid var(--border-default)',
                   backgroundColor: 'var(--bg-page)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12.5px',
+                  fontSize: '12px',
                   fontFamily: 'monospace',
-                  boxSizing: 'border-box'
-                }}
-              />
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                Relative to Resource Host (e.g. <code>{resource.ip?.startsWith('http') ? resource.ip : `http://${resource.ip || 'your-server'}`}{tokenPath}</code>)
-              </span>
-            </div>
-
-            {/* Client ID Property Selector & Feasibility */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <label style={{ fontSize: '11.5px', fontWeight: 600 }}>
-                  Client ID Configuration
-                </label>
-                <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setClientIdMode('PROPERTY')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: clientIdMode === 'PROPERTY' ? 'var(--color-primary-600, #2563EB)' : 'var(--text-secondary)',
-                      fontWeight: clientIdMode === 'PROPERTY' ? 700 : 400,
-                      cursor: 'pointer',
-                      textDecoration: clientIdMode === 'PROPERTY' ? 'underline' : 'none'
-                    }}
-                  >
-                    Select Property
-                  </button>
-                  <span>|</span>
-                  <button
-                    type="button"
-                    onClick={() => setClientIdMode('DIRECT')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: clientIdMode === 'DIRECT' ? 'var(--color-primary-600, #2563EB)' : 'var(--text-secondary)',
-                      fontWeight: clientIdMode === 'DIRECT' ? 700 : 400,
-                      cursor: 'pointer',
-                      textDecoration: clientIdMode === 'DIRECT' ? 'underline' : 'none'
-                    }}
-                  >
-                    Direct Value
-                  </button>
+                  color: 'var(--text-primary)'
+                }}>
+                  {tokenPath || '/api/authentication'}
                 </div>
               </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Response Token Field
+                </span>
+                <div style={{
+                  padding: '7px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-default)',
+                  backgroundColor: 'var(--bg-page)',
+                  fontSize: '12px',
+                  fontFamily: 'monospace',
+                  color: 'var(--text-primary)'
+                }}>
+                  {tokenResponseField || 'accessToken'}
+                </div>
+              </div>
+            </div>
 
-              {clientIdMode === 'PROPERTY' ? (
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <select
-                    value={clientIdProp}
-                    onChange={(e) => {
-                      setClientIdProp(e.target.value);
-                      const existing = resource.customProperties?.[e.target.value];
-                      if (existing !== undefined) setClientIdDirect(String(existing));
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '7px 10px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border-default)',
-                      backgroundColor: 'var(--bg-page)',
-                      color: 'var(--text-primary)',
-                      fontSize: '12.5px'
-                    }}
-                  >
-                    <option value="clientId">Property: 'clientId'</option>
-                    {Object.keys(resource.customProperties || {})
-                      .filter(k => k !== 'clientId' && k !== 'clientSecret' && k !== 'auth')
-                      .map(k => (
-                        <option key={k} value={k}>Property: '{k}'</option>
-                      ))}
-                  </select>
-                  <input
-                    type="text"
-                    placeholder="Current Value"
-                    value={clientIdDirect || (resource.customProperties?.[clientIdProp] !== undefined ? String(resource.customProperties[clientIdProp]) : '')}
-                    onChange={(e) => setClientIdDirect(e.target.value)}
-                    style={{
-                      flex: 1.2,
-                      padding: '7px 10px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border-default)',
-                      backgroundColor: 'var(--bg-page)',
-                      color: 'var(--text-primary)',
-                      fontSize: '12.5px'
-                    }}
-                  />
+            {/* Authentication-Marked Properties Only */}
+            <div>
+              <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                Authentication Parameters (Marked for Authentication):
+              </span>
+              {authProperties.length === 0 ? (
+                <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', padding: '10px', border: '1px dashed var(--border-default)', borderRadius: '6px', backgroundColor: 'var(--bg-page)' }}>
+                  No properties currently marked for authentication. Add or mark properties in <em>Edit Resource</em>.
                 </div>
               ) : (
-                <input
-                  type="text"
-                  placeholder="Enter Client ID directly"
-                  value={clientIdDirect}
-                  onChange={(e) => setClientIdDirect(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '7px 10px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border-default)',
-                    backgroundColor: 'var(--bg-page)',
-                    color: 'var(--text-primary)',
-                    fontSize: '12.5px',
-                    boxSizing: 'border-box'
-                  }}
-                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {authProperties.map(prop => (
+                    <div
+                      key={prop.key}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-default)',
+                        backgroundColor: 'var(--bg-page)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <CheckCircle2 size={13} color="#10B981" />
+                        <code style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>{prop.key}</code>
+                        {prop.isSecret && (
+                          <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '4px', backgroundColor: '#FEF3C7', color: '#B45309', fontWeight: 600 }}>
+                            Secret
+                          </span>
+                        )}
+                        <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '4px', backgroundColor: '#DCFCE7', color: '#166534', fontWeight: 600 }}>
+                          For Auth
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                        {prop.isSecret ? '••••••••' : prop.value || '[empty]'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
-            {/* Client Secret Property Selector & Feasibility */}
+            {/* Live Request Body Preview */}
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <label style={{ fontSize: '11.5px', fontWeight: 600 }}>
-                  Client Secret Configuration
-                </label>
-                <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setClientSecretMode('PROPERTY')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: clientSecretMode === 'PROPERTY' ? 'var(--color-primary-600, #2563EB)' : 'var(--text-secondary)',
-                      fontWeight: clientSecretMode === 'PROPERTY' ? 700 : 400,
-                      cursor: 'pointer',
-                      textDecoration: clientSecretMode === 'PROPERTY' ? 'underline' : 'none'
-                    }}
-                  >
-                    Select Property
-                  </button>
-                  <span>|</span>
-                  <button
-                    type="button"
-                    onClick={() => setClientSecretMode('DIRECT')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: clientSecretMode === 'DIRECT' ? 'var(--color-primary-600, #2563EB)' : 'var(--text-secondary)',
-                      fontWeight: clientSecretMode === 'DIRECT' ? 700 : 400,
-                      cursor: 'pointer',
-                      textDecoration: clientSecretMode === 'DIRECT' ? 'underline' : 'none'
-                    }}
-                  >
-                    Direct Secret
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                {clientSecretMode === 'PROPERTY' ? (
-                  <>
-                    <select
-                      value={clientSecretProp}
-                      onChange={(e) => {
-                        setClientSecretProp(e.target.value);
-                        const existing = resource.customProperties?.[e.target.value];
-                        if (existing !== undefined) setClientSecretDirect(String(existing));
-                      }}
-                      style={{
-                        flex: 1,
-                        padding: '7px 10px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border-default)',
-                        backgroundColor: 'var(--bg-page)',
-                        color: 'var(--text-primary)',
-                        fontSize: '12.5px'
-                      }}
-                    >
-                      <option value="clientSecret">Property: 'clientSecret'</option>
-                      {Object.keys(resource.customProperties || {})
-                        .filter(k => k !== 'clientId' && k !== 'clientSecret' && k !== 'auth')
-                        .map(k => (
-                          <option key={k} value={k}>Property: '{k}'</option>
-                        ))}
-                    </select>
-                    <div style={{ flex: 1.2, position: 'relative' }}>
-                      <input
-                        type={showSecret ? 'text' : 'password'}
-                        placeholder="Current Secret"
-                        value={clientSecretDirect || (resource.customProperties?.[clientSecretProp] !== undefined ? String(resource.customProperties[clientSecretProp]) : '')}
-                        onChange={(e) => setClientSecretDirect(e.target.value)}
-                        style={{
-                          width: '100%',
-                          padding: '7px 32px 7px 10px',
-                          borderRadius: '6px',
-                          border: '1px solid var(--border-default)',
-                          backgroundColor: 'var(--bg-page)',
-                          color: 'var(--text-primary)',
-                          fontSize: '12.5px',
-                          boxSizing: 'border-box'
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowSecret(!showSecret)}
-                        style={{
-                          position: 'absolute',
-                          right: '8px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: 'var(--text-secondary)'
-                        }}
-                      >
-                        {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ flex: 1, position: 'relative' }}>
-                    <input
-                      type={showSecret ? 'text' : 'password'}
-                      placeholder="Enter Client Secret directly"
-                      value={clientSecretDirect}
-                      onChange={(e) => setClientSecretDirect(e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '7px 32px 7px 10px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border-default)',
-                        backgroundColor: 'var(--bg-page)',
-                        color: 'var(--text-primary)',
-                        fontSize: '12.5px',
-                        boxSizing: 'border-box'
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowSecret(!showSecret)}
-                      style={{
-                        position: 'absolute',
-                        right: '8px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: 'var(--text-secondary)'
-                      }}
-                    >
-                      {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                )}
-              </div>
+              <span style={{ display: 'block', fontSize: '10.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                Request Body Generated for Authentication:
+              </span>
+              <JsonViewer data={authPayloadPreview} />
             </div>
           </div>
         )}
 
-        {/* METHOD TYPE: API_KEY */}
+        {/* METHOD: API_KEY Read-Only Info */}
         {authType === 'API_KEY' && (
           <div style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '14px',
-            padding: '16px',
-            borderRadius: '10px',
+            gap: '12px',
+            padding: '14px',
+            borderRadius: '8px',
             border: '1px solid var(--border-default)',
             backgroundColor: 'var(--bg-surface-subtle)'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: 'var(--color-primary-600, #2563EB)' }}>
               <Key size={14} />
-              <span>API Key Header Settings</span>
+              <span>API Key Authentication Configuration</span>
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, marginBottom: '4px' }}>
-                Header Name *
-              </label>
-              <input
-                type="text"
-                required
-                value={apiKeyHeader}
-                onChange={(e) => setApiKeyHeader(e.target.value)}
-                placeholder="X-API-KEY"
-                style={{
-                  width: '100%',
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Header Name
+                </span>
+                <div style={{
                   padding: '7px 10px',
                   borderRadius: '6px',
                   border: '1px solid var(--border-default)',
                   backgroundColor: 'var(--bg-page)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12.5px',
+                  fontSize: '12px',
                   fontFamily: 'monospace',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, marginBottom: '4px' }}>
-                API Key Value *
-              </label>
-              <input
-                type="password"
-                required
-                value={apiKeyDirect}
-                onChange={(e) => setApiKeyDirect(e.target.value)}
-                placeholder="Enter API Key Value"
-                style={{
-                  width: '100%',
+                  color: 'var(--text-primary)'
+                }}>
+                  {apiKeyHeader || 'X-API-KEY'}
+                </div>
+              </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Associated Key Property
+                </span>
+                <div style={{
                   padding: '7px 10px',
                   borderRadius: '6px',
                   border: '1px solid var(--border-default)',
                   backgroundColor: 'var(--bg-page)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12.5px',
-                  boxSizing: 'border-box'
-                }}
-              />
+                  fontSize: '12px',
+                  color: 'var(--text-primary)'
+                }}>
+                  {apiKeyProperty || 'apiKeyValue'}
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* METHOD TYPE: BASIC_AUTH */}
+        {/* METHOD: BASIC_AUTH Read-Only Info */}
         {authType === 'BASIC_AUTH' && (
           <div style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '14px',
-            padding: '16px',
-            borderRadius: '10px',
+            gap: '12px',
+            padding: '14px',
+            borderRadius: '8px',
             border: '1px solid var(--border-default)',
             backgroundColor: 'var(--bg-surface-subtle)'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: 'var(--color-primary-600, #2563EB)' }}>
               <Lock size={14} />
-              <span>Basic Authentication Credentials</span>
+              <span>HTTP Basic Authentication Configuration</span>
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, marginBottom: '4px' }}>
-                Username *
-              </label>
-              <input
-                type="text"
-                required
-                value={basicUserDirect}
-                onChange={(e) => setBasicUserDirect(e.target.value)}
-                placeholder="Enter username"
-                style={{
-                  width: '100%',
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Username Parameter
+                </span>
+                <div style={{
                   padding: '7px 10px',
                   borderRadius: '6px',
                   border: '1px solid var(--border-default)',
                   backgroundColor: 'var(--bg-page)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12.5px',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, marginBottom: '4px' }}>
-                Password *
-              </label>
-              <input
-                type="password"
-                required
-                value={basicPassDirect}
-                onChange={(e) => setBasicPassDirect(e.target.value)}
-                placeholder="Enter password"
-                style={{
-                  width: '100%',
+                  fontSize: '12px',
+                  color: 'var(--text-primary)'
+                }}>
+                  {basicUserProperty || 'username'}
+                </div>
+              </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Password Parameter
+                </span>
+                <div style={{
                   padding: '7px 10px',
                   borderRadius: '6px',
                   border: '1px solid var(--border-default)',
                   backgroundColor: 'var(--bg-page)',
-                  color: 'var(--text-primary)',
-                  fontSize: '12.5px',
-                  boxSizing: 'border-box'
-                }}
-              />
+                  fontSize: '12px',
+                  color: 'var(--text-primary)'
+                }}>
+                  {basicPassProperty || 'password'} (••••••••)
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Test Connection Banner */}
+        {/* Quick User-Side Validation & Test Connection Action */}
         <div style={{
-          padding: '14px',
+          padding: '16px',
           borderRadius: '8px',
-          backgroundColor: 'var(--bg-surface-subtle)',
+          backgroundColor: 'var(--bg-surface)',
           border: '1px solid var(--border-default)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px'
+          gap: '12px'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <span style={{ fontSize: '12px', fontWeight: 700, display: 'block' }}>
-                Connection Verification
+              <span style={{ fontSize: '13px', fontWeight: 700, display: 'block', color: 'var(--text-primary)' }}>
+                Live Connection & Token Validation
               </span>
               <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                Test authenticating against host without modifying saved database record
+                Test authenticating with host endpoint to ensure credentials and token acquisition work as expected.
               </span>
             </div>
             <Button
               type="button"
-              variant="secondary"
+              variant="primary"
               size="sm"
               onClick={handleTestAuth}
               isLoading={isTesting}
-              icon={<Zap size={13} color="#D97706" />}
+              leftIcon={<Zap size={14} />}
             >
-              Test Connection
+              Test Authentication
             </Button>
           </div>
 
           {testResult && (
             <Alert
               variant={testResult.success ? 'success' : 'danger'}
-              title={testResult.success ? 'Authentication Succeeded' : 'Authentication Failed'}
+              title={testResult.success ? 'Authentication Verified' : 'Authentication Test Failed'}
             >
               <div>{testResult.message}</div>
               {testResult.tokenSnippet && (
                 <div style={{ marginTop: '6px', fontFamily: 'monospace', fontSize: '11px' }}>
-                  <strong>Acquired Token:</strong> {testResult.tokenSnippet}
+                  <strong>Token Received:</strong> {testResult.tokenSnippet}
                 </div>
               )}
             </Alert>
           )}
         </div>
-      </form>
+      </div>
     </Modal>
   );
 };

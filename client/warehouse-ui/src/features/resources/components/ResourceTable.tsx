@@ -19,7 +19,8 @@ import {
   Loader2, 
   Server, 
   Eye, 
-  Plus 
+  Plus,
+  Cpu 
 } from 'lucide-react';
 import { ResourceItem } from '../../../services/resourceService';
 import { Badge, getStatusBadgeVariant } from '../../../components/common/Badge';
@@ -31,6 +32,7 @@ export interface ResourceTableProps {
   onOpenCreate: () => void;
   onOpenDetails: (res: ResourceItem) => void;
   onOpenMethods: (res: ResourceItem) => void;
+  onOpenPlcControl?: (res: ResourceItem) => void;
   onOpenEdit: (res: ResourceItem) => void;
   onDelete: (resourceId: string) => Promise<void>;
   copiedIp: string | null;
@@ -43,6 +45,7 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
   onOpenCreate,
   onOpenDetails,
   onOpenMethods,
+  onOpenPlcControl,
   onOpenEdit,
   onDelete,
   copiedIp,
@@ -85,6 +88,7 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
   // Filter and sort resources
   const filteredResources = useMemo(() => {
     return resources.filter(res => {
+      const endpoint = res.host ? `${res.host}${res.port ? `:${res.port}` : ''}` : (res.ip || '');
       // Global search
       if (searchQuery) {
         const q = searchQuery.toLowerCase().trim();
@@ -92,11 +96,20 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
           res.resourceId.toLowerCase().includes(q) ||
           res.name.toLowerCase().includes(q) ||
           res.type.toLowerCase().includes(q) ||
+          (res.protocol && res.protocol.toLowerCase().includes(q)) ||
+          (res.application && res.application.toLowerCase().includes(q)) ||
+          (res.description && res.description.toLowerCase().includes(q)) ||
+          (res.templateCode && res.templateCode.toLowerCase().includes(q)) ||
           res.status.toLowerCase().includes(q) ||
-          (res.ip && res.ip.toLowerCase().includes(q)) ||
-          (res.customProperties && Object.entries(res.customProperties).some(
-            ([k, v]) => k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q)
-          ));
+          endpoint.toLowerCase().includes(q) ||
+          (() => {
+            const allProps = (res.effectiveProperties && Object.keys(res.effectiveProperties).length > 0)
+              ? res.effectiveProperties
+              : { ...(res.templateProperties || {}), ...(res.customProperties || {}) };
+            return Object.entries(allProps).some(
+              ([k, v]) => k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q)
+            );
+          })();
         if (!matchesGlobal) return false;
       }
 
@@ -107,11 +120,15 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
 
         if (key === 'resourceId' && !res.resourceId.toLowerCase().includes(val)) return false;
         if (key === 'name' && !res.name.toLowerCase().includes(val)) return false;
+        if (key === 'application' && !(res.application || '').toLowerCase().includes(val)) return false;
         if (key === 'type' && !res.type.toLowerCase().includes(val)) return false;
         if (key === 'status' && !res.status.toLowerCase().includes(val)) return false;
-        if (key === 'ip' && !(res.ip || '').toLowerCase().includes(val)) return false;
+        if (key === 'ip' && !endpoint.toLowerCase().includes(val)) return false;
         if (key === 'customProperties') {
-          const hasProp = res.customProperties && Object.entries(res.customProperties).some(
+          const allProps = (res.effectiveProperties && Object.keys(res.effectiveProperties).length > 0)
+            ? res.effectiveProperties
+            : { ...(res.templateProperties || {}), ...(res.customProperties || {}) };
+          const hasProp = Object.entries(allProps).some(
             ([k, v]) => k.toLowerCase().includes(val) || String(v).toLowerCase().includes(val)
           );
           if (!hasProp) return false;
@@ -337,12 +354,12 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                 </th>
                 <th onClick={() => handleSort('name')} style={{ padding: '8px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    Name {getSortIcon('name')}
+                    Name / Application {getSortIcon('name')}
                   </div>
                 </th>
                 <th onClick={() => handleSort('type')} style={{ padding: '8px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    Type {getSortIcon('type')}
+                    Type / Protocol {getSortIcon('type')}
                   </div>
                 </th>
                 <th onClick={() => handleSort('status')} style={{ padding: '8px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -352,11 +369,11 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                 </th>
                 <th onClick={() => handleSort('ip')} style={{ padding: '8px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    IP Address {getSortIcon('ip')}
+                    Endpoint (Host:Port) {getSortIcon('ip')}
                   </div>
                 </th>
                 <th style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                  Custom Properties
+                  Description & Config
                 </th>
                 <th style={{ padding: '8px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                   Actions
@@ -381,7 +398,7 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                   <th style={{ padding: '4px 8px' }}>
                     <input
                       type="text"
-                      placeholder="Filter Name..."
+                      placeholder="Filter Name/App..."
                       value={colFilters.name || ''}
                       onChange={e => {
                         setColFilters({ ...colFilters, name: e.target.value });
@@ -417,7 +434,7 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                   <th style={{ padding: '4px 8px' }}>
                     <input
                       type="text"
-                      placeholder="Filter IP..."
+                      placeholder="Filter Host/Port..."
                       value={colFilters.ip || ''}
                       onChange={e => {
                         setColFilters({ ...colFilters, ip: e.target.value });
@@ -445,7 +462,8 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
 
             <tbody>
               {pagedResources.map(res => {
-                const isCopied = copiedIp === res.ip;
+                const endpointDisplay = res.host ? `${res.host}${res.port ? `:${res.port}` : ''}` : (res.ip || '');
+                const isCopied = copiedIp === (res.host || res.ip);
 
                 return (
                   <tr
@@ -459,28 +477,70 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                   >
                     {/* Resource ID */}
                     <td style={{ padding: '8px 12px', fontWeight: 600, fontFamily: 'monospace' }}>
-                      <span style={{
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        backgroundColor: 'var(--bg-surface-subtle)',
-                        border: '1px solid var(--border-default)',
-                        fontSize: '11.5px',
-                        color: 'var(--color-primary-600)'
-                      }}>
-                        {res.resourceId}
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: 'var(--bg-surface-subtle)',
+                          border: '1px solid var(--border-default)',
+                          fontSize: '11.5px',
+                          color: 'var(--color-primary-600)',
+                          width: 'fit-content'
+                        }}>
+                          {res.resourceId}
+                        </span>
+                        {res.templateCode && (
+                          <span style={{ fontSize: '9.5px', color: 'var(--text-secondary)' }}>
+                            tpl: {res.templateCode}
+                          </span>
+                        )}
+                      </div>
                     </td>
 
-                    {/* Name */}
-                    <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {res.name}
-                    </td>
-
-                    {/* Type */}
+                    {/* Name & Application */}
                     <td style={{ padding: '8px 12px' }}>
-                      <Badge variant={getTypeBadgeVariant(res.type)}>
-                        {res.type}
-                      </Badge>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {res.name}
+                        </span>
+                        {res.application && (
+                          <span style={{
+                            fontSize: '10px',
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                            color: '#38BDF8',
+                            border: '1px solid rgba(56, 189, 248, 0.3)',
+                            fontWeight: 600,
+                            width: 'fit-content'
+                          }}>
+                            {res.application}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Type & Protocol */}
+                    <td style={{ padding: '8px 12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <Badge variant={getTypeBadgeVariant(res.type)}>
+                          {res.type}
+                        </Badge>
+                        {res.protocol && (
+                          <span style={{
+                            fontSize: '10px',
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                            color: '#10B981',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                            fontWeight: 600,
+                            fontFamily: 'monospace'
+                          }}>
+                            {res.protocol}
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Status */}
@@ -490,18 +550,18 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                       </Badge>
                     </td>
 
-                    {/* IP Address */}
+                    {/* Endpoint (Host:Port) */}
                     <td style={{ padding: '8px 12px' }}>
-                      {res.ip ? (
+                      {endpointDisplay ? (
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                           <Globe size={13} color="var(--text-secondary)" />
                           <span style={{ fontFamily: 'monospace', fontSize: '11.5px', color: 'var(--text-primary)' }}>
-                            {res.ip}
+                            {endpointDisplay}
                           </span>
                           <button
                             type="button"
-                            onClick={() => onCopyIp(res.ip!)}
-                            title="Copy IP"
+                            onClick={() => onCopyIp(endpointDisplay)}
+                            title="Copy Endpoint"
                             style={{
                               border: 'none',
                               background: 'transparent',
@@ -520,60 +580,94 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                       )}
                     </td>
 
-                    {/* Custom Properties */}
+                    {/* Description & Custom Properties */}
                     <td style={{ padding: '8px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                        {res.customProperties && Object.keys(res.customProperties).length > 0 ? (
-                          <>
-                            {Object.entries(res.customProperties)
-                              .slice(0, 2)
-                              .map(([k, v]) => (
-                                <span
-                                  key={k}
-                                  style={{
-                                    padding: '1px 5px',
-                                    borderRadius: '4px',
-                                    fontSize: '10.5px',
-                                    backgroundColor: 'var(--bg-surface-subtle)',
-                                    border: '1px solid var(--border-default)',
-                                    color: 'var(--text-secondary)'
-                                  }}
-                                >
-                                  <strong style={{ color: 'var(--text-primary)' }}>{k}:</strong>{' '}
-                                  {typeof v === 'object' ? '{...}' : String(v)}
-                                </span>
-                              ))}
-                            {Object.keys(res.customProperties).length > 2 && (
-                              <button
-                                type="button"
-                                onClick={() => onOpenDetails(res)}
-                                style={{
-                                  border: 'none',
-                                  background: 'transparent',
-                                  fontSize: '10.5px',
-                                  color: 'var(--color-primary-600)',
-                                  cursor: 'pointer',
-                                  fontWeight: 600,
-                                  padding: 0
-                                }}
-                              >
-                                +{Object.keys(res.customProperties).length - 2} more
-                              </button>
-                            )}
-                          </>
-                        ) : (
-                          <span style={{ color: 'var(--text-disabled)', fontSize: '11px' }}>—</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {res.description && (
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={res.description}>
+                            {res.description}
+                          </div>
                         )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                          {(() => {
+                            const displayProps = (res.effectiveProperties && Object.keys(res.effectiveProperties).length > 0)
+                              ? res.effectiveProperties
+                              : { ...(res.templateProperties || {}), ...(res.customProperties || {}) };
+                            const propEntries = Object.entries(displayProps).filter(([k]) => k !== 'properties' && k !== 'tokenPath' && k !== 'tokenResponseField');
+
+                            if (propEntries.length > 0) {
+                              return (
+                                <>
+                                  {propEntries.slice(0, 2).map(([k, v]) => (
+                                    <span
+                                      key={k}
+                                      style={{
+                                        padding: '1px 5px',
+                                        borderRadius: '4px',
+                                        fontSize: '10px',
+                                        backgroundColor: 'var(--bg-surface-subtle)',
+                                        border: '1px solid var(--border-default)',
+                                        color: 'var(--text-secondary)'
+                                      }}
+                                    >
+                                      <strong style={{ color: 'var(--text-primary)' }}>{k}:</strong>{' '}
+                                      {typeof v === 'object' ? '{...}' : String(v)}
+                                    </span>
+                                  ))}
+                                  {propEntries.length > 2 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenDetails(res)}
+                                      style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        fontSize: '10.5px',
+                                        color: 'var(--color-primary-600)',
+                                        cursor: 'pointer',
+                                        fontWeight: 600,
+                                        padding: 0
+                                      }}
+                                    >
+                                      +{propEntries.length - 2} more
+                                    </button>
+                                  )}
+                                </>
+                              );
+                            }
+
+                            if (!res.description) {
+                              return <span style={{ color: 'var(--text-disabled)', fontSize: '11px' }}>—</span>;
+                            }
+                            return null;
+                          })()}
+                        </div>
                       </div>
                     </td>
 
                     {/* Actions */}
                     <td style={{ padding: '8px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        {Boolean(onOpenPlcControl && (res.type.toUpperCase() === 'PLC' || res.protocol?.toLowerCase().includes('opc') || (res.customProperties?.tags && Array.isArray(res.customProperties.tags)))) && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenPlcControl?.(res)}
+                            title="Open PLC Tag Read/Write Controls"
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: '#2563EB',
+                              padding: '3px 5px',
+                              borderRadius: '4px'
+                            }}
+                          >
+                            <Cpu size={14} />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => onOpenMethods(res)}
-                          title="Configure Methods & Auth"
+                          title="Test & Validate Authentication"
                           style={{
                             background: 'none',
                             border: 'none',

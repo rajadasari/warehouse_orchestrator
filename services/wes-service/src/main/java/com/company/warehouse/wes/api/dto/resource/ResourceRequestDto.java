@@ -35,19 +35,46 @@ public class ResourceRequestDto {
     @Builder.Default
     private String status = "ACTIVE";
 
+    private String description;
+
+    @Builder.Default
+    private String application = "WMS";
+
+    @Builder.Default
+    private String protocol = "http";
+
+    private String host;
+
+    private Integer port;
+
+    private String documentationUrl;
+
     /**
-     * Direct IP convenience field. If provided, automatically mapped into customProperties["ip"].
+     * IP convenience field for backward compatibility.
      */
     private String ip;
 
     @Builder.Default
+    private Map<String, Object> methodsConfig = new HashMap<>();
+
+    @Builder.Default
     private Map<String, Object> customProperties = new HashMap<>();
 
-    public Map<String, Object> getResolvedCustomProperties() {
-        Map<String, Object> props = customProperties != null ? new HashMap<>(customProperties) : new HashMap<>();
-        if (ip != null && !ip.trim().isEmpty() && !props.containsKey("ip")) {
-            props.put("ip", ip.trim());
+    public String getResolvedHost() {
+        if (host != null && !host.trim().isEmpty()) return host.trim();
+        if (ip != null && !ip.trim().isEmpty()) return ip.trim();
+        if (customProperties != null) {
+            for (String k : new String[]{"ipAddress", "ip", "host", "plcIp", "baseUrl", "targetHost"}) {
+                if (customProperties.containsKey(k) && customProperties.get(k) != null) {
+                    String val = String.valueOf(customProperties.get(k)).trim();
+                    if (!val.isEmpty()) return val;
+                }
+            }
         }
-        return props;
+        return "127.0.0.1";
+    }
+
+    public Map<String, Object> getResolvedCustomProperties() {
+        return customProperties != null ? new HashMap<>(customProperties) : new HashMap<>();
     }
 }

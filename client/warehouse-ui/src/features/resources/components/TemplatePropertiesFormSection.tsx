@@ -79,78 +79,114 @@ export const TemplatePropertiesFormSection: React.FC<TemplatePropertiesFormSecti
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            {currentTemplate.propertySchema.map((field: PropertySchemaItem) => {
-              const currentVal = templateProperties[field.key];
-              const displayVal = currentVal !== undefined ? currentVal : (field.defaultValue !== undefined ? field.defaultValue : '');
+            {currentTemplate.propertySchema
+              .filter((field: PropertySchemaItem) => {
+                // Conditional filtering based on authType
+                const authType = String(templateProperties['authType'] || 'ANONYMOUS').toUpperCase();
+                if (['username', 'password'].includes(field.key) && authType !== 'USERNAME_PASSWORD') {
+                  return false;
+                }
+                if (['keyStorePath', 'keyStorePassword'].includes(field.key) && authType !== 'X509_CERTIFICATE') {
+                  return false;
+                }
+                return true;
+              })
+              .map((field: PropertySchemaItem) => {
+                const currentVal = templateProperties[field.key];
+                const displayVal = currentVal !== undefined ? currentVal : (field.defaultValue !== undefined ? field.defaultValue : '');
+                const isNumeric = ['NUMBER', 'INTEGER', 'LONG', 'DOUBLE'].includes(String(field.type).toUpperCase());
+                const isSecret = String(field.type).toUpperCase() === 'SECRET';
 
-              return (
-                <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span>{field.label || field.key}</span>
-                    {field.required && <span style={{ color: 'var(--color-danger, #EF4444)' }}>*</span>}
-                    {field.unit && <span className="text-muted" style={{ fontWeight: 400 }}>({field.unit})</span>}
-                  </label>
-
-                  {field.type === 'BOOLEAN' ? (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', minHeight: '32px', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(displayVal)}
-                        onChange={(e) => onPropertyChange(field.key, e.target.checked)}
-                      />
-                      <span>Enabled</span>
+                return (
+                  <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span>{field.label || field.key}</span>
+                      {field.required && <span style={{ color: 'var(--color-danger, #EF4444)' }}>*</span>}
+                      {field.unit && <span className="text-muted" style={{ fontWeight: 400 }}>({field.unit})</span>}
                     </label>
-                  ) : field.type === 'ENUM' && field.options ? (
-                    <select
-                      value={String(displayVal)}
-                      onChange={(e) => onPropertyChange(field.key, e.target.value)}
-                      style={{
-                        padding: '6px 8px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border-default)',
-                        backgroundColor: 'var(--bg-page)',
-                        color: 'var(--text-primary)',
-                        fontSize: '12px'
-                      }}
-                    >
-                      {field.options.map(opt => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  ) : field.type === 'NUMBER' ? (
-                    <input
-                      type="number"
-                      value={displayVal !== undefined ? String(displayVal) : ''}
-                      onChange={(e) => onPropertyChange(field.key, e.target.value === '' ? '' : Number(e.target.value))}
-                      style={{
-                        padding: '6px 8px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border-default)',
-                        backgroundColor: 'var(--bg-page)',
-                        color: 'var(--text-primary)',
-                        fontSize: '12px',
-                        fontFamily: 'monospace'
-                      }}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={displayVal !== undefined ? String(displayVal) : ''}
-                      onChange={(e) => onPropertyChange(field.key, e.target.value)}
-                      style={{
-                        padding: '6px 8px',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border-default)',
-                        backgroundColor: 'var(--bg-page)',
-                        color: 'var(--text-primary)',
-                        fontSize: '12px',
-                        fontFamily: 'monospace'
-                      }}
-                    />
-                  )}
-                </div>
-              );
-            })}
+
+                    {field.description && (
+                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '2px', lineHeight: '1.2' }}>
+                        {field.description}
+                      </span>
+                    )}
+
+                    {field.type === 'BOOLEAN' ? (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', minHeight: '32px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(displayVal)}
+                          onChange={(e) => onPropertyChange(field.key, e.target.checked)}
+                        />
+                        <span>Enabled</span>
+                      </label>
+                    ) : field.type === 'ENUM' && field.options ? (
+                      <select
+                        value={String(displayVal)}
+                        onChange={(e) => onPropertyChange(field.key, e.target.value)}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                          backgroundColor: 'var(--bg-page)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px'
+                        }}
+                      >
+                        {field.options.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : isNumeric ? (
+                      <input
+                        type="number"
+                        value={displayVal !== undefined ? String(displayVal) : ''}
+                        onChange={(e) => onPropertyChange(field.key, e.target.value === '' ? '' : Number(e.target.value))}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                          backgroundColor: 'var(--bg-page)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px',
+                          fontFamily: 'monospace'
+                        }}
+                      />
+                    ) : isSecret ? (
+                      <input
+                        type="password"
+                        value={displayVal !== undefined ? String(displayVal) : ''}
+                        onChange={(e) => onPropertyChange(field.key, e.target.value)}
+                        placeholder="••••••••"
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                          backgroundColor: 'var(--bg-page)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px',
+                          fontFamily: 'monospace'
+                        }}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={displayVal !== undefined ? String(displayVal) : ''}
+                        onChange={(e) => onPropertyChange(field.key, e.target.value)}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                          backgroundColor: 'var(--bg-page)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px',
+                          fontFamily: 'monospace'
+                        }}
+                      />
+                    )}
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}

@@ -47,7 +47,7 @@ param(
     [string]$Mode = "BuildFromSource",
     [string]$ReleasePath = "",
     [string]$DbHost = "auto",
-    [string]$DbName = "warehouse_test_db",
+    [string]$DbName = "warehouse_db",
     [string]$DbPassword = "warehouse_test123",
     [string]$AdminPassword = "Admin@Master2026!",
     [switch]$SkipBuild = $false,
@@ -114,7 +114,7 @@ $javaVersionOutput = & java -version 2>&1 | Out-String
 $ErrorActionPreference = $prevEap
 Write-Success "Java detected: $($javaVersionOutput.Split("`n")[0].Trim())"
 
-# 1.3 Detect PostgreSQL
+# 1.4 Detect PostgreSQL
 $pgService = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $pgService) {
     Write-Warn "PostgreSQL service not registered as a standard Windows service. Checking connectivity..."
@@ -124,24 +124,6 @@ if (-not $pgService) {
         Start-Service $pgService.Name
     }
     Write-Success "PostgreSQL Service ($($pgService.Name)) is Running."
-}
-
-# 1.4 Resolve DB Host
-if ($DbHost -eq "auto") {
-    # Check if ::1 or 127.0.0.1 accepts 5432
-    $canConnectIpv6 = (Test-NetConnection -ComputerName "::1" -Port 5432 -WarningAction SilentlyContinue).TcpTestSucceeded
-    $canConnectIpv4 = (Test-NetConnection -ComputerName "127.0.0.1" -Port 5432 -WarningAction SilentlyContinue).TcpTestSucceeded
-
-    if ($canConnectIpv6) {
-        $DbHost = "[::1]"
-        Write-Success "Auto-detected PostgreSQL listening on IPv6 loopback ($DbHost:5432)."
-    } elseif ($canConnectIpv4) {
-        $DbHost = "127.0.0.1"
-        Write-Success "Auto-detected PostgreSQL listening on IPv4 loopback ($DbHost:5432)."
-    } else {
-        $DbHost = "127.0.0.1"
-        Write-Warn "PostgreSQL port 5432 not responding on loopback yet. Defaulting to 127.0.0.1."
-    }
 }
 
 # 1.5 Detect Eclipse Mosquitto
@@ -159,7 +141,7 @@ if ($mqttService) {
 # 1.6 Clear conflicting Windows portproxy rules if present
 try {
     $proxyRules = netsh interface portproxy show all 2>&1 | Out-String
-    $platformPorts = @(8080, 8081, 8082, 8083, 8084, 8085, 8086, 8087)
+    $platformPorts = @(5432, 1883, 8080, 8081, 8082, 8083, 8084, 8085, 8086, 8087)
     foreach ($p in $platformPorts) {
         if ($proxyRules -match "0\.0\.0\.0\s+$p\s+") {
             Write-Host "Clearing conflicting Windows portproxy rule on port $p..." -ForegroundColor Yellow
@@ -168,6 +150,24 @@ try {
     }
 } catch {
     Write-Warn "Notice inspecting portproxy: $_"
+}
+
+# 1.7 Resolve DB Host & Port
+if ($DbHost -eq "auto" -or $DbHost -eq "127.0.0.1" -or $DbHost -eq "localhost") {
+    # Check IPv4 and IPv6 loopback against PostgreSQL port 5432
+    $canConnectIpv4 = (Test-NetConnection -ComputerName "127.0.0.1" -Port 5432 -WarningAction SilentlyContinue).TcpTestSucceeded
+    $canConnectIpv6 = (Test-NetConnection -ComputerName "::1" -Port 5432 -WarningAction SilentlyContinue).TcpTestSucceeded
+
+    if ($canConnectIpv4) {
+        $DbHost = "127.0.0.1"
+        Write-Success "Resolved PostgreSQL host: 127.0.0.1:5432 (IPv4 loopback)"
+    } elseif ($canConnectIpv6) {
+        $DbHost = "[::1]"
+        Write-Success "Resolved PostgreSQL host: [::1]:5432 (IPv6 loopback)"
+    } else {
+        $DbHost = "[::1]"
+        Write-Warn "PostgreSQL port 5432 not responding on test. Defaulting to [::1]."
+    }
 }
 
 # -----------------------------------------------------------------------------
@@ -191,7 +191,7 @@ Write-Success "Directory hierarchy verified under $InstallPath"
 Write-PhaseHeader "PHASE 3" "Database & Schema Initialization"
 
 if ($SkipDbInit) {
-    Write-Host "[-SkipDbInit specified] Skipping SQL schema initialization." -ForegroundColor Cyan
+    Write-Host "[-SkipDbInit specified] Preserving existing database '$DbName' without schema re-initialization." -ForegroundColor Cyan
 } else {
     # Locate psql.exe
     $psqlCmd = Get-Command psql -ErrorAction SilentlyContinue
@@ -202,7 +202,7 @@ if ($SkipDbInit) {
     }
 
     if (-not $psqlPath) {
-        Write-Warn "psql.exe could not be found automatically. Please run scripts\db\init.sql manually if not already executed."
+        Write-Warn "psql.exe could not be found automatically. Assuming existing database '$DbName' is already initialized."
     } else {
         Write-Host "Found psql utility: $psqlPath" -ForegroundColor DarkGray
         $initSqlFile = if ($Mode -eq "FromReleasePackage" -and (Test-Path "$ReleasePath\scripts\db\init.sql")) {
@@ -210,20 +210,34 @@ if ($SkipDbInit) {
         } else {
             Join-Path $repoRoot "scripts\db\init.sql"
         }
-        if (Test-Path $initSqlFile) {
-            Write-Host "Applying database bootstrap script: $initSqlFile..." -ForegroundColor Yellow
-            $cleanHost = $DbHost.Replace("[","").Replace("]","")
-            try {
-                $dbCheck = & $psqlPath -U postgres -h $cleanHost -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$DbName'" 2>&1 | Out-String
-                if ($dbCheck -notmatch "1") {
-                    Write-Host "Creating database '$DbName'..." -ForegroundColor Cyan
-                    & $psqlPath -U postgres -h $cleanHost -d postgres -c "CREATE DATABASE $DbName;" 2>&1 | Out-Null
+        
+        $cleanHost = $DbHost.Replace("[","").Replace("]","")
+        try {
+            $dbCheck = & $psqlPath -U postgres -h $cleanHost -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$DbName'" 2>&1 | Out-String
+            if ($dbCheck -match "1") {
+                # Database exists. Check if schemas/tables exist to preserve data
+                $tableCount = & $psqlPath -U postgres -h $cleanHost -d $DbName -tc "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('auth','wes','wms','wcs','asrs','fleet');" 2>&1 | Out-String
+                $count = 0
+                [int]::TryParse($tableCount.Trim(), [ref]$count) | Out-Null
+                if ($count -gt 0) {
+                    Write-Success "Existing database '$DbName' detected with $count platform tables. Preserving existing database and data intact."
+                } else {
+                    Write-Host "Database '$DbName' exists but has no platform tables. Initializing bootstrap schema..." -ForegroundColor Yellow
+                    if (Test-Path $initSqlFile) {
+                        & $psqlPath -U postgres -h $cleanHost -d $DbName -f $initSqlFile 2>&1 | Out-Null
+                        Write-Success "Database schemas initialized in '$DbName'."
+                    }
                 }
-                & $psqlPath -U postgres -h $cleanHost -d $DbName -f $initSqlFile 2>&1 | Out-Null
-                Write-Success "Database '$DbName', user 'warehouse_app', and schemas initialized."
-            } catch {
-                Write-Warn "Notice during psql execution: $_. Database may already be initialized."
+            } else {
+                Write-Host "Database '$DbName' does not exist. Creating and bootstrapping..." -ForegroundColor Cyan
+                & $psqlPath -U postgres -h $cleanHost -d postgres -c "CREATE DATABASE $DbName;" 2>&1 | Out-Null
+                if (Test-Path $initSqlFile) {
+                    & $psqlPath -U postgres -h $cleanHost -d $DbName -f $initSqlFile 2>&1 | Out-Null
+                    Write-Success "Database '$DbName' created, user 'warehouse_app', and schemas initialized."
+                }
             }
+        } catch {
+            Write-Warn "Notice during database verification: $_. Preserving existing database configuration."
         }
     }
 }
@@ -318,7 +332,8 @@ Write-Success "All production artifacts staged in $InstallPath\bin and static-ui
 Write-PhaseHeader "PHASE 5" "Secrets & Configuration Hardening (IEC 62443)"
 
 $envFilePath = Join-Path $InstallPath "config\platform.env"
-$cleanDbHost = if ($DbHost.StartsWith("[")) { $DbHost } else { $DbHost }
+$appYamlFilePath = Join-Path $InstallPath "config\application.yml"
+$cleanDbHost = if ($DbHost.Contains(":") -and -not $DbHost.StartsWith("[")) { "[$DbHost]" } else { $DbHost }
 $envContent = @"
 # Database Connection
 DB_HOST=$cleanDbHost
@@ -337,7 +352,16 @@ AUTH_MODE=LOCAL
 JWT_EXPIRATION_HOURS=24
 "@
 Set-Content -Path $envFilePath -Value $envContent -Encoding utf8
-Write-Success "Production configuration written to $envFilePath."
+
+$appYamlContent = @"
+# Shared Spring Boot Platform Configuration (IEC 62443 Industrial HMI)
+# Service-specific datasources and schemas are configured per service via environment variables
+spring:
+  main:
+    banner-mode: console
+"@
+Set-Content -Path $appYamlFilePath -Value $appYamlContent -Encoding utf8
+Write-Success "Production configurations written to $envFilePath and $appYamlFilePath."
 
 # Apply strict NTFS ACLs (SYSTEM and Administrators only)
 try {
@@ -414,15 +438,17 @@ $serviceSpecs = @(
         jar = "auth-service.jar";
         jvm = "$jvmGcFlag -Xms512m -Xmx1024m";
         port = 8085;
+        grpcPort = 9091;
     },
     @{
         id = "warehouse-wcs";
         name = "Warehouse 02: WCS Service";
-        desc = "Floor Conveyor Sorters & PLC Integration";
+        desc = "Floor Conveyor Sorters and PLC Integration";
         exeName = "wcs-service";
         jar = "wcs-service.jar";
         jvm = "$jvmGcFlag -Xms512m -Xmx1024m";
         port = 8083;
+        grpcPort = 9094;
     },
     @{
         id = "warehouse-asrs";
@@ -432,6 +458,7 @@ $serviceSpecs = @(
         jar = "asrs-wcs-service.jar";
         jvm = "$jvmGcFlag -Xms512m -Xmx1024m";
         port = 8087;
+        grpcPort = 9096;
     },
     @{
         id = "warehouse-fleet";
@@ -441,24 +468,27 @@ $serviceSpecs = @(
         jar = "fleet-service.jar";
         jvm = "$jvmGcFlag -Xms512m -Xmx1024m";
         port = 8084;
+        grpcPort = 9095;
     },
     @{
         id = "warehouse-wms";
         name = "Warehouse 05: WMS Service";
-        desc = "Local Bin Inventory & Stock Allocations";
+        desc = "Local Bin Inventory and Stock Allocations";
         exeName = "wms-service";
         jar = "wms-service.jar";
         jvm = "$jvmGcFlag -Xms512m -Xmx1024m";
         port = 8082;
+        grpcPort = 9093;
     },
     @{
         id = "warehouse-wes";
         name = "Warehouse 06: WES Service";
-        desc = "Master Data Authority, Resource Manager & Wave Execution";
+        desc = "Master Data Authority, Resource Manager and Wave Execution";
         exeName = "wes-service";
         jar = "wes-service.jar";
         jvm = "$jvmGcFlag -Xms1024m -Xmx2048m";
         port = 8086;
+        grpcPort = 9092;
     },
     @{
         id = "warehouse-gateway";
@@ -468,6 +498,7 @@ $serviceSpecs = @(
         jar = "gateway-service.jar";
         jvm = "$jvmGcFlag -Xms256m -Xmx512m";
         port = 8080;
+        grpcPort = 9090;
     }
 )
 
@@ -483,19 +514,32 @@ foreach ($svc in $serviceSpecs) {
         Copy-Item $baseWinSw $targetExe -Force
     }
 
+    $svcLogDir = Join-Path $logsPath $svc.exeName
+    if (-not (Test-Path $svcLogDir)) {
+        New-Item -ItemType Directory -Path $svcLogDir -Force | Out-Null
+    }
+
     $xmlContent = @"
 <service>
   <id>$($svc.id)</id>
   <name>$($svc.name)</name>
   <description>$($svc.desc)</description>
   <executable>java</executable>
-  <arguments>$($svc.jvm) -jar $binPath\$($svc.jar) --server.port=$($svc.port)</arguments>
+  <arguments>$($svc.jvm) $(if ($cleanDbHost.Contains(":")) { "-Djava.net.preferIPv6Addresses=true" } else { "" }) -jar $binPath\$($svc.jar) --server.port=$($svc.port) --grpc.server.port=$($svc.grpcPort)</arguments>
   <env name="SPRING_CONFIG_ADDITIONAL_LOCATION" value="file:$configPath\"/>
+  <env name="GRPC_PORT" value="$($svc.grpcPort)"/>
+  <env name="DB_HOST" value="$cleanDbHost"/>
+  <env name="DB_PORT" value="5432"/>
+  <env name="DB_NAME" value="$DbName"/>
+  <env name="DB_USERNAME" value="warehouse_app"/>
+  <env name="DB_PASSWORD" value="$DbPassword"/>
+  <env name="MOSQUITTO_HOST" value="127.0.0.1"/>
+  <env name="MOSQUITTO_PORT" value="1883"/>
   <workingdirectory>$InstallPath</workingdirectory>
-  <logpath>$logsPath</logpath>
-  <log mode="roll-by-size">
-    <sizeThreshold>52428800</sizeThreshold>
-    <keepFiles>5</keepFiles>
+  <logpath>$svcLogDir</logpath>
+  <log mode="roll-by-time">
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
   </log>
   <onfailure action="restart" delay="5 sec"/>
 </service>
@@ -600,7 +644,7 @@ $initAdminScript = if ($Mode -eq "FromReleasePackage" -and (Test-Path "$ReleaseP
 if (Test-Path $initAdminScript) {
     Write-Host "Commissioning Master Administrator credentials ($initAdminScript)..." -ForegroundColor Yellow
     try {
-        & $initAdminScript -NewPassword $AdminPassword -DbName $DbName
+        & $initAdminScript -NewPassword $AdminPassword -DbName $DbName -DbHost $DbHost
     } catch {
         Write-Warn "Notice during admin commissioning: $_"
     }
@@ -622,7 +666,7 @@ $report = @()
 foreach ($svc in $healthEndpoints.Keys) {
     $url = $healthEndpoints[$svc]
     $status = "OFFLINE"
-    for ($i = 0; $i -lt 4; $i++) {
+    for ($i = 0; $i -lt 10; $i++) {
         try {
             $res = Invoke-RestMethod -Uri $url -TimeoutSec 3 -ErrorAction Stop
             if ($res.status) {
@@ -630,7 +674,7 @@ foreach ($svc in $healthEndpoints.Keys) {
                 break
             }
         } catch {
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 3
         }
     }
     $report += [PSCustomObject]@{

@@ -2,12 +2,15 @@ package com.company.warehouse.wes.business.workflow;
 
 import com.company.warehouse.wes.api.dto.workflow.TriggerWorkflowRequest;
 import com.company.warehouse.wes.api.dto.workflow.WorkflowInstanceDto;
-import com.company.warehouse.wes.business.dynamic.DynamicPayloadEngine;
+import com.company.warehouse.wes.business.workflow.logging.WorkflowStructuredLogger;
+import com.company.warehouse.wes.business.workflow.node.WorkflowNodeRegistry;
+import com.company.warehouse.wes.business.workflow.node.control.AsyncGateHandler;
+import com.company.warehouse.wes.business.workflow.node.control.TerminatorHandler;
+import com.company.warehouse.wes.business.workflow.node.integration.ValidationHandler;
+import com.company.warehouse.wes.business.workflow.routing.WorkflowEdgeRouter;
 import com.company.warehouse.wes.data.entity.workflow.WorkflowDefinitionEntity;
 import com.company.warehouse.wes.data.entity.workflow.WorkflowExecutionLogEntity;
 import com.company.warehouse.wes.data.entity.workflow.WorkflowInstanceEntity;
-import com.company.warehouse.wes.data.repository.ApiIntegrationMappingRepository;
-import com.company.warehouse.wes.data.repository.PalletRepository;
 import com.company.warehouse.wes.data.repository.workflow.WorkflowDefinitionRepository;
 import com.company.warehouse.wes.data.repository.workflow.WorkflowExecutionLogRepository;
 import com.company.warehouse.wes.data.repository.workflow.WorkflowInstanceRepository;
@@ -44,15 +47,6 @@ class WorkflowEngineServiceTest {
     @Mock
     private WorkflowExecutionLogRepository logRepository;
 
-    @Mock
-    private PalletRepository palletRepository;
-
-    @Mock
-    private ApiIntegrationMappingRepository mappingRepository;
-
-    @Mock
-    private DynamicPayloadEngine dynamicPayloadEngine;
-
     private ObjectMapper objectMapper;
     private WorkflowEngineService workflowEngineService;
 
@@ -75,13 +69,21 @@ class WorkflowEngineServiceTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
+        WorkflowStructuredLogger structuredLogger = new WorkflowStructuredLogger(logRepository, objectMapper);
+        WorkflowEdgeRouter edgeRouter = new WorkflowEdgeRouter();
+        WorkflowNodeRegistry nodeRegistry = new WorkflowNodeRegistry(List.of(
+                new ValidationHandler(),
+                new AsyncGateHandler(),
+                new TerminatorHandler()
+        ));
+
         workflowEngineService = new WorkflowEngineService(
                 definitionRepository,
                 instanceRepository,
                 logRepository,
-                palletRepository,
-                mappingRepository,
-                dynamicPayloadEngine,
+                nodeRegistry,
+                edgeRouter,
+                structuredLogger,
                 objectMapper
         );
     }

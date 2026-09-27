@@ -36,6 +36,21 @@ export default defineConfig({
           });
         }
       },
+      '/api/v1/wcs': {
+        target: process.env.WCS_SERVICE_URL || 'http://127.0.0.1:8084',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            if ('writeHead' in res && !res.headersSent) {
+              (res as any).writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                error: 'Service Unavailable',
+                message: 'WCS Service (port 8084) is offline or still starting up.'
+              }));
+            }
+          });
+        }
+      },
       '/swagger-ui': {
         target: process.env.WES_SERVICE_URL || 'http://127.0.0.1:8086',
         changeOrigin: true

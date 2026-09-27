@@ -1,0 +1,18 @@
+[
+  {"nodeId": "ns=3;s=Manufacturer", "browseName": "Manufacturer", "nodeClass": "Variable", "value": "LocalizedText{text=Siemens AG, locale=null}"},
+  {"nodeId": "ns=3;s=Model", "browseName": "Model", "nodeClass": "Variable", "value": "LocalizedText{text=CPU 1516pro F-2 PN, locale=null}"},
+  {"nodeId": "ns=3;s=OrderNumber", "browseName": "OrderNumber", "nodeClass": "Variable", "value": "6ES7 516-2GP03-0AB0 "},
+  {"nodeId": "ns=3;s=SerialNumber", "browseName": "SerialNumber", "nodeClass": "Variable", "value": "10S C-sV7Pz85796"},
+  {"nodeId": "ns=3;s=SoftwareRevision", "browseName": "SoftwareRevision", "nodeClass": "Variable", "value": "V03.01.00"},
+  {"nodeId": "ns=3;s=HardwareRevision", "browseName": "HardwareRevision", "nodeClass": "Variable", "value": "0"},
+  {"nodeId": "ns=3;s=DeviceRevision", "browseName": "DeviceRevision", "nodeClass": "Variable", "value": "6ES7 516-2GP03-0AB0  V03.01.00"},
+  {"nodeId": "ns=3;s=OperatingMode", "browseName": "OperatingMode", "nodeClass": "Variable", "value": "8"},
+  {"nodeId": "ns=3;s=EngineeringRevision", "browseName": "EngineeringRevision", "nodeClass": "Variable", "value": "V19.0.0.0"},
+  {"nodeId": "ns=3;s=RevisionCounter", "browseName": "RevisionCounter", "nodeClass": "Variable", "value": "-1"},
+  {"nodeId": "ns=3;s=DataBlocksGlobal", "browseName": "DataBlocksGlobal", "nodeClass": "Container", "value": "N/A"},
+  {"nodeId": "ns=3;s=Inputs", "browseName": "Inputs", "nodeClass": "Container", "value": "N/A"},
+  {"nodeId": "ns=3;s=Outputs", "browseName": "Outputs", "nodeClass": "Container", "value": "N/A"},
+  {"nodeId": "ns=3;s=Memory", "browseName": "Memory", "nodeClass": "Container", "value": "N/A"},
+  {"nodeId": "ns=3;s=Timers", "browseName": "Timers", "nodeClass": "Container", "value": "N/A"},
+  {"nodeId": "ns=3;s=Counters", "browseName": "Counters", "nodeClass": "Container", "value": "N/A"}
+]

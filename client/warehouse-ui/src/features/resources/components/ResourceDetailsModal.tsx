@@ -119,6 +119,45 @@ export const ResourceDetailsModal: React.FC<ResourceDetailsModalProps> = ({
           )}
         </div>
 
+        {/* Template Blueprint Indicator */}
+        {resource.templateCode && (
+          <div style={{
+            padding: '10px 14px',
+            borderRadius: '6px',
+            backgroundColor: 'rgba(56, 189, 248, 0.08)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '12px'
+          }}>
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>Inherited Template Blueprint:</span>
+            <Badge variant="info">{resource.templateCode}</Badge>
+          </div>
+        )}
+
+        {/* Template Blueprint Properties */}
+        {((resource.templateProperties && Object.keys(resource.templateProperties).length > 0) ||
+          (resource.effectiveProperties && Object.keys(resource.effectiveProperties).length > 0)) && (
+          <div>
+            <span style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+              display: 'block',
+              marginBottom: '6px'
+            }}>
+              Template Properties:
+            </span>
+            <JsonViewer
+              data={resource.templateProperties && Object.keys(resource.templateProperties).length > 0
+                ? resource.templateProperties
+                : (resource.effectiveProperties || {})}
+              maxHeight="200px"
+            />
+          </div>
+        )}
+
         {/* Custom Properties */}
         <div>
           <span style={{
@@ -132,7 +171,7 @@ export const ResourceDetailsModal: React.FC<ResourceDetailsModalProps> = ({
           </span>
           <JsonViewer
             data={resource.customProperties || {}}
-            maxHeight="260px"
+            maxHeight="200px"
           />
         </div>
       </div>

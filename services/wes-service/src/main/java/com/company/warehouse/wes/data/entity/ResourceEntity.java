@@ -21,7 +21,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "resource", schema = "wes")
+@Table(name = "resource", schema = "wo")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -54,6 +54,44 @@ public class ResourceEntity {
     @Column(name = "template_code", length = 60)
     private String templateCode;
 
+    @Column(name = "description", length = 500)
+    private String description;
+
+    /**
+     * @deprecated Legacy field. Industrial connection parameters are managed via OT Gateway and customProperties.
+     */
+    @Deprecated
+    @Builder.Default
+    @Column(name = "application", nullable = false, length = 100)
+    private String application = "WMS";
+
+    /**
+     * @deprecated Legacy field. Replaced by OT Gateway communicationMethod.
+     */
+    @Deprecated
+    @Builder.Default
+    @Column(name = "protocol", nullable = false, length = 10)
+    private String protocol = "http";
+
+    /**
+     * @deprecated Legacy field. Endpoint coordinates reside in customProperties or OT Gateway driver config.
+     */
+    @Deprecated
+    @Builder.Default
+    @Column(name = "host", nullable = false, length = 255)
+    private String host = "127.0.0.1";
+
+    /**
+     * @deprecated Legacy field. Endpoint coordinates reside in customProperties or OT Gateway driver config.
+     */
+    @Deprecated
+    @Builder.Default
+    @Column(name = "port", nullable = false)
+    private int port = 8080;
+
+    @Column(name = "documentation_url", length = 500)
+    private String documentationUrl;
+
     @Builder.Default
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "template_properties", nullable = false, columnDefinition = "jsonb")
@@ -63,6 +101,11 @@ public class ResourceEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "custom_properties", nullable = false, columnDefinition = "jsonb")
     private String customProperties = "{}";
+
+    @Builder.Default
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "methods_config", nullable = false, columnDefinition = "jsonb")
+    private String methodsConfig = "{}";
 
     @Version
     @Column(name = "version", nullable = false)

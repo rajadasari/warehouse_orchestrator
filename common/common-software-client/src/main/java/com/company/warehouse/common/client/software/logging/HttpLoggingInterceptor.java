@@ -145,7 +145,9 @@ public class HttpLoggingInterceptor implements ClientHttpRequestInterceptor {
         public InputStream getBody() throws IOException {
             if (cachedBody == null) {
                 try (InputStream is = delegate.getBody()) {
-                    cachedBody = is.readAllBytes();
+                    cachedBody = is != null ? is.readAllBytes() : new byte[0];
+                } catch (IOException ex) {
+                    cachedBody = new byte[0];
                 }
             }
             return new ByteArrayInputStream(cachedBody);

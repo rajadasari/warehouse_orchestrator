@@ -278,7 +278,7 @@ export const SoftwareAuthFormSection: React.FC<SoftwareAuthFormSectionProps> = (
             <div key={idx} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
               <input
                 type="text"
-                placeholder="Key (e.g. clientId)"
+                placeholder="Key (e.g. username, clientId)"
                 value={prop.key}
                 onChange={(e) => handleSoftwarePropChange(idx, 'key', e.target.value)}
                 style={{

@@ -3,11 +3,22 @@
     Automated Offline Release Bundle Packager for Warehouse Orchestrator
 .DESCRIPTION
     Compiles and packages all required components into a self-contained offline
-    release bundle ready to be copied to a USB drive or air-gapped machine.
+    release bundle configured to use the existing database and preserve existing
+    data, schemas, and credentials without data loss or re-initialization.
 .PARAMETER OutputPath
     Destination directory where the release bundle will be created. Default: 'C:\release'
 .PARAMETER SkipBuild
     Skip Maven and npm compilation (uses existing target/ and dist/ artifacts).
+.PARAMETER DbName
+    Existing PostgreSQL database name. Default: 'warehouse_db'
+.PARAMETER DbHost
+    PostgreSQL host. Default: 'localhost'
+.PARAMETER DbUser
+    PostgreSQL application user. Default: 'warehouse_app'
+.PARAMETER DbPassword
+    PostgreSQL application user password. Default: 'warehouse_test123'
+.PARAMETER PreserveExistingDb
+    Preserve existing database schema and data intact. Default: $true
 .EXAMPLE
     .\scripts\package_release.ps1 -OutputPath "C:\release"
 .EXAMPLE
@@ -16,20 +27,55 @@
 [CmdletBinding()]
 param(
     [string]$OutputPath = "C:\release",
-    [switch]$SkipBuild = $false
+    [switch]$SkipBuild = $false,
+    [string]$DbName = "warehouse_db",
+    [string]$DbHost = "localhost",
+    [string]$DbUser = "warehouse_app",
+    [string]$DbPassword = "warehouse_test123",
+    [switch]$PreserveExistingDb = $true
 )
 
 $ErrorActionPreference = "Stop"
 
 Write-Host "================================================================================" -ForegroundColor Cyan
 Write-Host " WAREHOUSE ORCHESTRATOR - OFFLINE RELEASE BUNDLE PACKAGER" -ForegroundColor Cyan
+Write-Host " (CONFIGURED FOR EXISTING DATABASE - ZERO DATA LOSS)" -ForegroundColor Cyan
 Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host " Output Directory : $OutputPath" -ForegroundColor White
-Write-Host " Skip Build       : $SkipBuild" -ForegroundColor White
-Write-Host " Timestamp        : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor White
+Write-Host " Output Directory     : $OutputPath" -ForegroundColor White
+Write-Host " Skip Build           : $SkipBuild" -ForegroundColor White
+Write-Host " Target Database      : $DbName (Existing DB Preserved: $PreserveExistingDb)" -ForegroundColor Green
+Write-Host " Database Host        : $DbHost" -ForegroundColor White
+Write-Host " Database User        : $DbUser" -ForegroundColor White
+Write-Host " Timestamp            : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor White
 Write-Host "================================================================================" -ForegroundColor Cyan
 
 $repoRoot = (Get-Item $PSScriptRoot).Parent.FullName
+
+# Probe and audit existing database if PostgreSQL utility is accessible
+$psqlCmd = Get-Command psql -ErrorAction SilentlyContinue
+$psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
+    Get-ChildItem -Path "C:\Program Files\PostgreSQL" -Recurse -Filter "psql.exe" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch "pgAdmin" } |
+        Select-Object -First 1 -ExpandProperty FullName
+}
+
+if ($psqlPath -and (Test-Path $psqlPath)) {
+    try {
+        $cleanHost = $DbHost.Replace("[","").Replace("]","")
+        $dbCheck = & $psqlPath -U postgres -h $cleanHost -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$DbName'" 2>&1 | Out-String
+        if ($dbCheck -match "1") {
+            $tableCount = & $psqlPath -U postgres -h $cleanHost -d $DbName -tc "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('auth','wes','wms','wcs','asrs','fleet');" 2>&1 | Out-String
+            $tCount = 0
+            [int]::TryParse($tableCount.Trim(), [ref]$tCount) | Out-Null
+            Write-Host "[AUDIT] Verified existing database '$DbName' ($tCount platform tables present)." -ForegroundColor Green
+            Write-Host "        Release package will connect to existing DB without modifying data or schema." -ForegroundColor Green
+        } else {
+            Write-Host "[INFO] Database '$DbName' not currently found on local host. It will be preserved if present at deployment." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "[INFO] Could not query PostgreSQL host directly ($DbHost). Continuing packaging..." -ForegroundColor DarkGray
+    }
+}
 
 # 1. Create target release folder hierarchy
 $binDir = Join-Path $OutputPath "bin"
@@ -42,10 +88,10 @@ foreach ($dir in @($binDir, $distDir, $toolsDir, $scriptsDir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
 }
-Write-Host "`n[STEP 1/5] Release directory tree created under $OutputPath" -ForegroundColor Green
+Write-Host "`n[STEP 1/6] Release directory tree created under $OutputPath" -ForegroundColor Green
 
 # 2. Build & Stage Spring Boot JARs
-Write-Host "`n[STEP 2/5] Packaging Backend Services..." -ForegroundColor Yellow
+Write-Host "`n[STEP 2/6] Packaging Backend Services..." -ForegroundColor Yellow
 
 if (-not $SkipBuild) {
     Write-Host " Running 'mvn clean package -DskipTests' across all modules..." -ForegroundColor Cyan
@@ -98,7 +144,7 @@ foreach ($svcKey in $serviceMappings.Keys) {
 }
 
 # 3. Build & Stage React UI
-Write-Host "`n[STEP 3/5] Packaging React Web UI..." -ForegroundColor Yellow
+Write-Host "`n[STEP 3/6] Packaging React Web UI..." -ForegroundColor Yellow
 $uiSrc = Join-Path $repoRoot "client\warehouse-ui"
 
 if (-not $SkipBuild) {
@@ -121,11 +167,10 @@ if (Test-Path $uiDist) {
 }
 
 # 4. Download WinSW-x64.exe for offline service wrapper
-Write-Host "`n[STEP 4/5] Securing WinSW Service Wrapper binary for offline use..." -ForegroundColor Yellow
+Write-Host "`n[STEP 4/6] Securing WinSW Service Wrapper binary for offline use..." -ForegroundColor Yellow
 $winSwPath = Join-Path $toolsDir "WinSW-x64.exe"
 
 if (-not (Test-Path $winSwPath)) {
-    # Check if we already have it in C:\warehouse-platform\service-wrapper\WinSW.exe
     $existingWinSw = "C:\warehouse-platform\service-wrapper\WinSW.exe"
     if (Test-Path $existingWinSw) {
         Copy-Item $existingWinSw $winSwPath -Force
@@ -146,12 +191,15 @@ if (-not (Test-Path $winSwPath)) {
 }
 
 # 5. Stage Deployment & Database Scripts
-Write-Host "`n[STEP 5/5] Staging Automation & Database Scripts..." -ForegroundColor Yellow
+Write-Host "`n[STEP 5/6] Staging Automation & Database Scripts..." -ForegroundColor Yellow
 $srcScripts = Join-Path $repoRoot "scripts"
-Copy-Item -Path "$srcScripts\db" -Destination (Join-Path $scriptsDir "db") -Recurse -Force
-Copy-Item -Path "$srcScripts\onprem" -Destination (Join-Path $scriptsDir "onprem") -Recurse -Force
+$targetDb = Join-Path $scriptsDir "db"
+$targetOnprem = Join-Path $scriptsDir "onprem"
+if (-not (Test-Path $targetDb)) { New-Item -ItemType Directory -Path $targetDb -Force | Out-Null }
+if (-not (Test-Path $targetOnprem)) { New-Item -ItemType Directory -Path $targetOnprem -Force | Out-Null }
+Copy-Item -Path "$srcScripts\db\*" -Destination $targetDb -Recurse -Force
+Copy-Item -Path "$srcScripts\onprem\*" -Destination $targetOnprem -Recurse -Force
 
-# Verify key scripts exist in the release bundle
 $requiredScripts = @(
     "deploy_windows_platform.ps1",
     "decommission_platform.ps1",
@@ -167,32 +215,97 @@ foreach ($s in $requiredScripts) {
     }
 }
 
-# 6. Generate Quick-Start & Operational Instructions in release folder
-$readmeContent = @'
+# 6. Generate One-Click Deployment Launchers in release root
+Write-Host "`n[STEP 6/6] Generating One-Click Deployment Launchers..." -ForegroundColor Yellow
+
+$skipDbFlag = if ($PreserveExistingDb) { "-SkipDbInit" } else { "" }
+
+$deployPs1Content = @"
+<#
+.SYNOPSIS
+    One-Click Platform Deployment Launcher (Preserving Existing Database & Data)
+.DESCRIPTION
+    Deploys the Warehouse Orchestrator platform to Windows Services while connecting
+    to the existing database without dropping, modifying, or re-initializing data.
+#>
+[CmdletBinding()]
+param(
+    [string]`$InstallPath = "C:\warehouse-platform",
+    [string]`$DbName = "$DbName",
+    [string]`$DbHost = "$DbHost",
+    [string]`$DbPassword = "$DbPassword",
+    [switch]`$SkipDbInit = `$$PreserveExistingDb
+)
+
+`$scriptPath = Join-Path `$PSScriptRoot "scripts\onprem\deploy_windows_platform.ps1"
+if (-not (Test-Path `$scriptPath)) {
+    Write-Error "Deployment script not found at: `$scriptPath"
+    exit 1
+}
+
+Write-Host "================================================================================" -ForegroundColor Cyan
+Write-Host " WAREHOUSE ORCHESTRATOR - DEPLOYMENT LAUNCHER (EXISTING DB MODE)" -ForegroundColor Cyan
+Write-Host "================================================================================" -ForegroundColor Cyan
+Write-Host " Target Database : `$DbName (Preserving existing schema and data)" -ForegroundColor Green
+Write-Host " Database Host   : `$DbHost" -ForegroundColor White
+Write-Host " Install Target  : `$InstallPath" -ForegroundColor White
+Write-Host " Skip DB Init    : `$SkipDbInit" -ForegroundColor White
+Write-Host "================================================================================" -ForegroundColor Cyan
+
+& `$scriptPath -Mode FromReleasePackage -ReleasePath `$PSScriptRoot -InstallPath `$InstallPath -DbName `$DbName -DbHost `$DbHost -DbPassword `$DbPassword -SkipDbInit:`$SkipDbInit
+"@
+
+$deployPs1File = Join-Path $OutputPath "deploy.ps1"
+Set-Content -Path $deployPs1File -Value $deployPs1Content -Encoding UTF8
+Write-Host " Created one-click deployment script: $deployPs1File" -ForegroundColor Green
+
+$deployBatContent = @"
+@echo off
+REM ============================================================================
+REM Warehouse Orchestrator - One-Click Deployment Launcher (Existing DB Mode)
+REM ============================================================================
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0deploy.ps1" %*
+"@
+$deployBatFile = Join-Path $OutputPath "deploy.bat"
+Set-Content -Path $deployBatFile -Value $deployBatContent -Encoding ASCII
+Write-Host " Created batch launcher: $deployBatFile" -ForegroundColor Green
+
+# 7. Generate Documentation in release folder
+$readmeContent = @"
 ================================================================================
 WAREHOUSE ORCHESTRATOR - OFFLINE RELEASE BUNDLE INSTRUCTIONS
+(EXISTING DATABASE MODE - ZERO DATA LOSS)
 ================================================================================
 
 PREREQUISITES ON TARGET PC:
   1. Java 21 (or 17) LTS installed (verify: java -version)
-  2. PostgreSQL 16 installed and running on port 5432
-  3. Eclipse Mosquitto MQTT broker installed and running on port 1883
+  2. PostgreSQL 16/17 running on port 5432 with existing database: $DbName
+  3. Eclipse Mosquitto MQTT broker running on port 1883
   4. Elevated PowerShell (Run as Administrator)
 
 --------------------------------------------------------------------------------
-1. FRESH DEPLOYMENT
+1. ONE-CLICK DEPLOYMENT (USES EXISTING DATABASE & DATA)
 --------------------------------------------------------------------------------
-Open PowerShell as Administrator in the release folder:
+Open PowerShell as Administrator in the release folder and run:
 
-  .\scripts\onprem\deploy_windows_platform.ps1 -Mode FromReleasePackage -ReleasePath .
+  .\deploy.ps1
+
+Or simply run from Command Prompt:
+  deploy.bat
+
+This command:
+  - Deploys all 7 microservices to C:\warehouse-platform
+  - Configures services to use existing database '$DbName' on $DbHost
+  - Preserves all existing database schemas, tables, users, and business data
+  - Registers and starts Windows Services in dependency order
+  - Preserves existing administrator credentials without forced resets
 
 Once complete:
   Web UI Access   : http://localhost:8080
-  Default Admin   : admin
-  Default Password: Admin@Master2026! (Mandatory password change on first login)
+  Management Tool : .\scripts\onprem\manage_services.ps1
 
 --------------------------------------------------------------------------------
-2. SERVICE MANAGEMENT (DAY-2)
+2. SERVICE MANAGEMENT (DAY-2 OPERATIONS)
 --------------------------------------------------------------------------------
 Use .\scripts\onprem\manage_services.ps1 to control all 7 microservices:
 
@@ -204,58 +317,64 @@ Use .\scripts\onprem\manage_services.ps1 to control all 7 microservices:
   - Live log streaming:      .\scripts\onprem\manage_services.ps1 -Action logs -Service auth
 
 --------------------------------------------------------------------------------
-3. DECOMMISSIONING & FACTORY RESET (FOR TESTING MULTIPLE TIMES ON SAME PC)
+3. SAFE PLATFORM RESET (PRESERVING DATABASE)
 --------------------------------------------------------------------------------
-To wipe the installation and reset the database so you can re-test fresh deployment:
+To reinstall or update platform binaries WITHOUT touching the database:
 
-  # Complete automated 1-command reset:
-  .\scripts\onprem\decommission_platform.ps1 -DropDatabase -RemoveInstallDir
+  .\scripts\onprem\decommission_platform.ps1 -RemoveInstallDir
 
-This command:
-  - Stops all 7 running platform services in reverse dependency order
-  - Unregisters all services from Windows Service Control Manager (SCM)
-  - Removes inbound Windows Firewall rules (ports 8080, 1883)
-  - Drops the PostgreSQL database ('warehouse_test_db') and application role ('warehouse_app')
-  - Deletes 'C:\warehouse-platform' (binaries, logs, and configs)
-
-After decommissioning, you can immediately test fresh deployment again:
-  .\scripts\onprem\deploy_windows_platform.ps1 -Mode FromReleasePackage -ReleasePath .
+Notice:
+  - The database '$DbName' and all data are PRESERVED intact.
+  - NEVER pass -DropDatabase if you want to keep your existing data.
 ================================================================================
-'@
+"@
 
 $readmeFile = Join-Path $OutputPath "README_DEPLOY.txt"
 Set-Content -Path $readmeFile -Value $readmeContent -Encoding UTF8
 
-$readmeMdContent = @'
+$readmeMdContent = @"
 # Warehouse Orchestrator — Offline Release Bundle Guide
+**Deployment Mode: Existing Database (Zero Data Loss)**
+
+This release bundle is pre-configured to connect to your existing PostgreSQL database (\`$DbName\`), preserving all existing schemas, tables, records, and credentials without disruption.
+
+---
 
 ## Prerequisites on Target Host
-1. **Java 21 or 17 LTS**: `java -version` in System PATH.
-2. **PostgreSQL 16**: Running on port 5432 with superuser `postgres`.
+1. **Java 21 or 17 LTS**: \`java -version\` in System PATH.
+2. **PostgreSQL 16/17**: Running on port 5432 with existing database \`$DbName\`.
 3. **Eclipse Mosquitto**: Running on port 1883.
 4. **PowerShell**: Elevated shell (**Run as Administrator**).
 
 ---
 
-## 1. Fresh Platform Deployment
-Open an elevated PowerShell prompt in this folder:
+## 1. One-Click Platform Deployment
+Open an elevated PowerShell prompt in this release folder:
 
-```powershell
-.\scripts\onprem\deploy_windows_platform.ps1 -Mode FromReleasePackage -ReleasePath .
-```
+\`\`\`powershell
+.\deploy.ps1
+\`\`\`
 
-### Day-0 Access
+*(Or run \`deploy.bat\` from an Administrator command prompt)*
+
+### What This Does:
+- Stages all 7 Spring Boot microservice binaries into \`C:\warehouse-platform\bin\`.
+- Deploys the industrial React Web UI into \`C:\warehouse-platform\static-ui\`.
+- Connects automatically to existing database \`$DbName\` on \`$DbHost\`.
+- Skips schema overwrites (\`-SkipDbInit\`), keeping all existing data 100% intact.
+- Preserves existing administrator credentials.
+- Registers and starts Windows services via WinSW.
+
+### Platform Access:
 - **Web UI URL**: [http://localhost:8080](http://localhost:8080)
-- **Username**: `admin`
-- **Default Password**: `Admin@Master2026!`
-- *(Per IEC 62443 compliance, you will be prompted to change your password upon first login)*
+- **Application Logs**: \`C:\warehouse-platform\logs\`
 
 ---
 
 ## 2. Day-2 Service Operations
-Manage all 7 platform services using `manage_services.ps1`:
+Manage all 7 platform services using \`manage_services.ps1\`:
 
-```powershell
+\`\`\`powershell
 # Check status of Windows services and Actuator health endpoints
 .\scripts\onprem\manage_services.ps1 -Action status
 
@@ -273,31 +392,19 @@ Manage all 7 platform services using `manage_services.ps1`:
 
 # Tail live log for a specific service (auth, wes, wms, wcs, asrs, fleet, gateway)
 .\scripts\onprem\manage_services.ps1 -Action logs -Service wes
-```
+\`\`\`
 
 ---
 
-## 3. Decommissioning & Reset (For Iterative Testing)
-To return the host to a factory-fresh state for repeated testing on the same PC:
+## 3. Platform Binaries Reset (Preserving Database)
+To update or reinstall platform binaries without affecting the database:
 
-```powershell
-.\scripts\onprem\decommission_platform.ps1 -DropDatabase -RemoveInstallDir
-```
+\`\`\`powershell
+.\scripts\onprem\decommission_platform.ps1 -RemoveInstallDir
+\`\`\`
 
-### Parameters:
-- `-DropDatabase`: Terminates active connections and drops `warehouse_test_db` & `warehouse_app` role.
-- `-RemoveInstallDir`: Deletes `C:\warehouse-platform` completely.
-- `-RemoveFirewallRules`: Removes the inbound rules for port 8080 and 1883.
-
-### Re-Deploy Cycle:
-```powershell
-# 1. Reset
-.\scripts\onprem\decommission_platform.ps1 -DropDatabase -RemoveInstallDir
-
-# 2. Deploy again
-.\scripts\onprem\deploy_windows_platform.ps1 -Mode FromReleasePackage -ReleasePath .
-```
-'@
+> **SAFETY NOTICE**: The database \`$DbName\` and all warehouse data remain completely safe and untouched.
+"@
 
 $readmeMdFile = Join-Path $OutputPath "README_DEPLOY.md"
 Set-Content -Path $readmeMdFile -Value $readmeMdContent -Encoding UTF8
@@ -305,7 +412,9 @@ Set-Content -Path $readmeMdFile -Value $readmeMdContent -Encoding UTF8
 # Summary
 Write-Host "`n================================================================================" -ForegroundColor Cyan
 Write-Host " RELEASE BUNDLE GENERATION COMPLETE!" -ForegroundColor Green
-Write-Host " Bundle Location: $OutputPath" -ForegroundColor White
+Write-Host " Bundle Location      : $OutputPath" -ForegroundColor White
+Write-Host " Target Database Mode : $DbName (Preserving existing DB and data)" -ForegroundColor Green
+Write-Host " One-Click Deployer   : $deployPs1File" -ForegroundColor White
 Write-Host "================================================================================" -ForegroundColor Cyan
 
 if ($stagedJars.Count -gt 0) {
@@ -316,6 +425,5 @@ Write-Host "Help & Documentation files included in release bundle:" -ForegroundC
 Write-Host "  - $readmeFile" -ForegroundColor White
 Write-Host "  - $readmeMdFile" -ForegroundColor White
 
-Write-Host "`nYou can now copy the folder '$OutputPath' directly to a USB drive or the offline PC." -ForegroundColor Cyan
+Write-Host "`nYou can now deploy directly with: .\deploy.ps1 (or copy '$OutputPath' to offline media)." -ForegroundColor Cyan
 Write-Host "================================================================================`n" -ForegroundColor Cyan
-

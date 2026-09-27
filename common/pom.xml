@@ -24,5 +24,6 @@
         <module>common-audit</module>
         <module>common-industrial</module>
         <module>common-software-client</module>
+        <module>common-resource</module>
     </modules>
 </project>

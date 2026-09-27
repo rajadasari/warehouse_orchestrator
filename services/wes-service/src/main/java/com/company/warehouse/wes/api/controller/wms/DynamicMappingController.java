@@ -2,13 +2,8 @@ package com.company.warehouse.wes.api.controller.wms;
 
 import com.company.warehouse.common.client.software.auth.TokenManager;
 import com.company.warehouse.wes.business.dynamic.DynamicPayloadEngine;
-import com.company.warehouse.wes.business.resource.ResourceManager;
 import com.company.warehouse.wes.data.entity.ApiIntegrationMappingEntity;
 import com.company.warehouse.wes.data.repository.ApiIntegrationMappingRepository;
-import com.company.warehouse.wes.data.repository.ItemMasterRepository;
-import com.company.warehouse.wes.data.repository.PalletRepository;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +27,6 @@ import org.springframework.web.client.RestClientResponseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -44,11 +38,7 @@ public class DynamicMappingController {
 
     private final ApiIntegrationMappingRepository mappingRepository;
     private final DynamicPayloadEngine dynamicEngine;
-    private final ResourceManager resourceManager;
     private final TokenManager tokenManager;
-    private final PalletRepository palletRepository;
-    private final ItemMasterRepository itemMasterRepository;
-    private final ObjectMapper objectMapper;
 
     /**
      * List dynamic API mappings.

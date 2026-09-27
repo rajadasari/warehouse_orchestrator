@@ -1,6 +1,5 @@
 package com.company.warehouse.wes.api.controller.wms;
 
-import com.company.warehouse.wes.business.service.PalletExecutionService;
 import com.company.warehouse.wes.business.spi.wms.WmsIntegrationSpi;
 import com.company.warehouse.wes.business.spi.wms.model.CreateOrderCommand;
 import com.company.warehouse.wes.business.spi.wms.model.PalletPreAnnounceCommand;
@@ -24,7 +23,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 @Slf4j
 @RestController

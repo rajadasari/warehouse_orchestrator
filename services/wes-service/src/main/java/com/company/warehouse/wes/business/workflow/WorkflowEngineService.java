@@ -4,14 +4,14 @@ import com.company.warehouse.wes.api.dto.workflow.TriggerWorkflowRequest;
 import com.company.warehouse.wes.api.dto.workflow.WorkflowDefinitionDto;
 import com.company.warehouse.wes.api.dto.workflow.WorkflowExecutionLogDto;
 import com.company.warehouse.wes.api.dto.workflow.WorkflowInstanceDto;
-import com.company.warehouse.wes.business.dynamic.DynamicPayloadEngine;
-import com.company.warehouse.wes.data.entity.ApiIntegrationMappingEntity;
-import com.company.warehouse.wes.data.entity.PalletEntity;
+import com.company.warehouse.wes.business.workflow.logging.WorkflowStructuredLogger;
+import com.company.warehouse.wes.business.workflow.logging.WorkflowTraceDto;
+import com.company.warehouse.wes.business.workflow.node.WorkflowNodeExecutionContext;
+import com.company.warehouse.wes.business.workflow.node.WorkflowNodeRegistry;
+import com.company.warehouse.wes.business.workflow.routing.WorkflowEdgeRouter;
 import com.company.warehouse.wes.data.entity.workflow.WorkflowDefinitionEntity;
 import com.company.warehouse.wes.data.entity.workflow.WorkflowExecutionLogEntity;
 import com.company.warehouse.wes.data.entity.workflow.WorkflowInstanceEntity;
-import com.company.warehouse.wes.data.repository.ApiIntegrationMappingRepository;
-import com.company.warehouse.wes.data.repository.PalletRepository;
 import com.company.warehouse.wes.data.repository.workflow.WorkflowDefinitionRepository;
 import com.company.warehouse.wes.data.repository.workflow.WorkflowExecutionLogRepository;
 import com.company.warehouse.wes.data.repository.workflow.WorkflowInstanceRepository;
@@ -19,37 +19,51 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Modular Enterprise Workflow Engine Service for WES and MES shop-floor orchestration.
+ * Supports dual REAL and SIMULATION execution modes, dynamic SpEL branching,
+ * and comprehensive structured logging.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class WorkflowEngineService {
 
+    private static final int MAX_WORKFLOW_STEPS = 100;
+
     private final WorkflowDefinitionRepository definitionRepository;
     private final WorkflowInstanceRepository instanceRepository;
     private final WorkflowExecutionLogRepository logRepository;
-    private final PalletRepository palletRepository;
-    private final ApiIntegrationMappingRepository mappingRepository;
-    private final DynamicPayloadEngine dynamicPayloadEngine;
+    private final WorkflowNodeRegistry nodeRegistry;
+    private final WorkflowEdgeRouter edgeRouter;
+    private final WorkflowStructuredLogger structuredLogger;
     private final ObjectMapper objectMapper;
 
+    private final AtomicReference<WorkflowExecutionMode> executionMode =
+            new AtomicReference<>(WorkflowExecutionMode.REAL);
+
     // =========================================================================
-    // 1. WORKFLOW DEFINITION CRUD
+    // 1. EXECUTION MODE MANAGEMENT
+    // =========================================================================
+
+    public WorkflowExecutionMode getExecutionMode() {
+        return this.executionMode.get();
+    }
+
+    public void setExecutionMode(WorkflowExecutionMode mode) {
+        log.info("Switching Workflow Engine execution mode to: {}", mode);
+        this.executionMode.set(mode != null ? mode : WorkflowExecutionMode.REAL);
+    }
+
+    // =========================================================================
+    // 2. WORKFLOW DEFINITION CRUD
     // =========================================================================
 
     @Transactional(readOnly = true)
@@ -97,7 +111,7 @@ public class WorkflowEngineService {
     }
 
     // =========================================================================
-    // 2. WORKFLOW TRIGGER & EXECUTION
+    // 3. WORKFLOW TRIGGER & EXECUTION
     // =========================================================================
 
     @Transactional
@@ -109,7 +123,12 @@ public class WorkflowEngineService {
         List<Map<String, Object>> nodes = extractList(graph.get("nodes"));
         List<Map<String, Object>> edges = extractList(graph.get("edges"));
 
-        // Find starting trigger node (prefer explicitly clicked trigger node if provided)
+        // Determine execution mode (request override or engine-level mode)
+        boolean simulationMode = request.getSimulationMode() != null
+                ? request.getSimulationMode()
+                : (this.executionMode.get() == WorkflowExecutionMode.SIMULATION);
+
+        // Find trigger node
         String requestedTriggerNodeId = (request.getInitialContext() != null && request.getInitialContext().get("triggeredByNodeId") != null)
                 ? String.valueOf(request.getInitialContext().get("triggeredByNodeId"))
                 : null;
@@ -138,6 +157,7 @@ public class WorkflowEngineService {
             initialContext.put("entityReference", request.getEntityReference());
         }
         initialContext.put("workflowCode", def.getWorkflowCode());
+        initialContext.put("isSimulated", simulationMode);
         initialContext.put("startTime", Instant.now().toString());
 
         WorkflowInstanceEntity instance = WorkflowInstanceEntity.builder()
@@ -149,14 +169,27 @@ public class WorkflowEngineService {
                 .build();
 
         WorkflowInstanceEntity savedInstance = instanceRepository.save(instance);
-        log.info("Triggered workflow instance ID '{}' for entity '{}'", savedInstance.getId(), request.getEntityReference());
+        log.info("Triggered workflow instance ID '{}' (mode={}) for entity '{}'",
+                savedInstance.getId(), simulationMode ? "SIMULATION" : "REAL", request.getEntityReference());
 
-        // Step 1: Log Trigger node
-        recordExecutionLog(savedInstance.getId(), 1, triggerNodeId, "TRIGGER", 
-                String.valueOf(triggerNode.get("label")), initialContext, initialContext, "SUCCESS", 5L, null);
+        // Step 1: Record Trigger node
+        structuredLogger.logStep(
+                savedInstance.getId(),
+                def.getWorkflowCode(),
+                savedInstance.getEntityReference(),
+                1,
+                triggerNodeId,
+                "TRIGGER",
+                String.valueOf(triggerNode.get("label")),
+                initialContext,
+                initialContext,
+                "SUCCESS",
+                5L,
+                null
+        );
 
         // Advance downstream execution
-        advanceWorkflow(savedInstance, nodes, edges, 2);
+        advanceWorkflow(savedInstance, nodes, edges, 2, simulationMode);
 
         return toInstanceDto(savedInstance);
     }
@@ -164,30 +197,38 @@ public class WorkflowEngineService {
     /**
      * Recursively advances workflow nodes across edges until paused or completed.
      */
-    private void advanceWorkflow(WorkflowInstanceEntity instance, 
-                                List<Map<String, Object>> nodes, 
-                                List<Map<String, Object>> edges, 
-                                int stepSeq) {
-        String currentId = instance.getCurrentNodeId();
-        Map<String, Object> context = deserializeMap(instance.getContextData());
+    private void advanceWorkflow(
+            WorkflowInstanceEntity instance,
+            List<Map<String, Object>> nodes,
+            List<Map<String, Object>> edges,
+            int stepSeq,
+            boolean simulationMode) {
 
-        // Find next target node from edges
-        Optional<Map<String, Object>> nextEdgeOpt = edges.stream()
-                .filter(e -> currentId.equals(String.valueOf(e.get("source"))))
-                .findFirst();
-
-        if (nextEdgeOpt.isEmpty()) {
-            instance.setStatus("COMPLETED");
+        if (stepSeq > MAX_WORKFLOW_STEPS) {
+            instance.setStatus("FAILED");
+            instance.setErrorMessage("Execution depth exceeded limit (" + MAX_WORKFLOW_STEPS + " steps) - cycle detected");
             instanceRepository.save(instance);
-            log.info("Workflow instance '{}' completed (no further edges from node '{}')", instance.getId(), currentId);
+            log.error("Workflow instance '{}' aborted: cycle detected at step {}", instance.getId(), stepSeq);
             return;
         }
 
-        String nextNodeId = String.valueOf(nextEdgeOpt.get().get("target"));
-        Map<String, Object> targetNode = nodes.stream()
-                .filter(n -> nextNodeId.equals(String.valueOf(n.get("id"))))
-                .findFirst()
-                .orElse(null);
+        String currentId = instance.getCurrentNodeId();
+        Map<String, Object> currentNode = findNode(nodes, currentId);
+        String currentNodeType = currentNode != null ? String.valueOf(currentNode.get("type")) : "UNKNOWN";
+        Map<String, Object> context = deserializeMap(instance.getContextData());
+
+        // Resolve next target node using smart edge router
+        Optional<String> nextNodeIdOpt = edgeRouter.resolveNextNode(currentId, currentNodeType, "SUCCESS", edges, context);
+
+        if (nextNodeIdOpt.isEmpty()) {
+            instance.setStatus("COMPLETED");
+            instanceRepository.save(instance);
+            log.info("Workflow instance '{}' completed (no outgoing edges from node '{}')", instance.getId(), currentId);
+            return;
+        }
+
+        String nextNodeId = nextNodeIdOpt.get();
+        Map<String, Object> targetNode = findNode(nodes, nextNodeId);
 
         if (targetNode == null) {
             instance.setStatus("FAILED");
@@ -201,20 +242,55 @@ public class WorkflowEngineService {
         String nodeLabel = String.valueOf(targetNode.get("label"));
         Map<String, Object> nodeConfig = extractMap(targetNode.get("config"));
 
+        WorkflowNodeExecutionContext nodeCtx = WorkflowNodeExecutionContext.builder()
+                .nodeId(nextNodeId)
+                .nodeType(nodeType)
+                .nodeLabel(nodeLabel)
+                .nodeConfig(nodeConfig)
+                .context(context)
+                .instance(instance)
+                .simulationMode(simulationMode)
+                .build();
+
         long startTime = System.currentTimeMillis();
-        NodeExecutionResult result = executeNode(targetNode, nodeType, nodeConfig, context, instance);
+        NodeExecutionResult result = nodeRegistry.executeNode(nodeCtx);
         long duration = Math.max(1, System.currentTimeMillis() - startTime);
 
-        // Merge result output back into shared context
+        // Merge node output into context
         if (result.getOutputData() != null && !result.getOutputData().isEmpty()) {
             context.putAll(result.getOutputData());
             instance.setContextData(serializeMap(context));
         }
 
-        recordExecutionLog(instance.getId(), stepSeq, nextNodeId, nodeType, nodeLabel, 
-                nodeConfig, result.getOutputData(), result.getStatus(), duration, result.getErrorMessage());
+        // Structured MDC logging and audit record
+        structuredLogger.logStep(
+                instance.getId(),
+                instance.getWorkflowCode(),
+                instance.getEntityReference(),
+                stepSeq,
+                nextNodeId,
+                nodeType,
+                nodeLabel,
+                nodeConfig,
+                result.getOutputData(),
+                result.getStatus(),
+                duration,
+                result.getErrorMessage()
+        );
 
-        if ("FAILED".equals(result.getStatus())) {
+        // Defensive failure handling with fallback routing
+        if ("FAILED".equalsIgnoreCase(result.getStatus())) {
+            Optional<String> failureBranchOpt = edgeRouter.resolveNextNode(nextNodeId, nodeType, "FAILED", edges, context);
+            if (failureBranchOpt.isPresent()) {
+                String failureTarget = failureBranchOpt.get();
+                log.warn("Node '{}' failed ({}), diverting to failure fallback edge target '{}'",
+                        nextNodeId, result.getErrorMessage(), failureTarget);
+                instance.setCurrentNodeId(failureTarget);
+                instanceRepository.save(instance);
+                advanceWorkflow(instance, nodes, edges, stepSeq + 1, simulationMode);
+                return;
+            }
+
             instance.setStatus("FAILED");
             instance.setErrorMessage(result.getErrorMessage());
             instanceRepository.save(instance);
@@ -222,11 +298,11 @@ public class WorkflowEngineService {
             return;
         }
 
-        if ("PAUSED_WAITING".equals(result.getStatus())) {
+        if ("PAUSED_WAITING".equalsIgnoreCase(result.getStatus())) {
             instance.setStatus("WAITING_CALLBACK");
             instance.setCorrelationKey(result.getCorrelationKey());
             instanceRepository.save(instance);
-            log.info("Workflow instance '{}' paused at node '{}' awaiting callback key '{}'", 
+            log.info("Workflow instance '{}' paused at node '{}' awaiting callback key '{}'",
                     instance.getId(), nextNodeId, result.getCorrelationKey());
             return;
         }
@@ -239,297 +315,11 @@ public class WorkflowEngineService {
         }
 
         instanceRepository.save(instance);
-        advanceWorkflow(instance, nodes, edges, stepSeq + 1);
-    }
-
-    /**
-     * Executes a single logical node based on its type and configuration.
-     */
-    private NodeExecutionResult executeNode(Map<String, Object> node, 
-                                           String nodeType, 
-                                           Map<String, Object> config, 
-                                           Map<String, Object> context,
-                                           WorkflowInstanceEntity instance) {
-        try {
-            switch (nodeType.toUpperCase()) {
-                case "STATE_MUTATION":
-                    return executeStateMutation(config, context, instance);
-
-                case "API_MAPPER":
-                    return executeApiMapper(config, context);
-
-                case "VALIDATION":
-                    return executeValidation(config, context);
-
-                case "ASYNC_GATE":
-                    return executeAsyncGate(config, context, instance);
-
-                case "MATH":
-                case "CALCULATION":
-                case "MATH_OPERATION":
-                    return executeMathOperation(config, context);
-
-                case "TERMINATOR":
-                    return NodeExecutionResult.success(Map.of("completedAt", Instant.now().toString()));
-
-                default:
-                    log.info("Passing generic step '{}' ({})", node.get("label"), nodeType);
-                    return NodeExecutionResult.success(Map.of("executed", true));
-            }
-        } catch (Exception e) {
-            log.error("Exception in node execution '{}': {}", node.get("label"), e.getMessage(), e);
-            return NodeExecutionResult.failed(e.getMessage());
-        }
-    }
-
-    private NodeExecutionResult executeStateMutation(Map<String, Object> config, 
-                                                     Map<String, Object> context, 
-                                                     WorkflowInstanceEntity instance) {
-        String targetEntity = String.valueOf(config.getOrDefault("targetEntity", "PALLET"));
-        Object statusVal = config.get("status") != null ? config.get("status") : config.get("targetStatus");
-        String targetStatus = statusVal != null ? String.valueOf(statusVal) : "IN_TRANSIT";
-
-        String entityRef = instance.getEntityReference();
-        if (entityRef == null && context.get("palletLpn") != null) {
-            entityRef = String.valueOf(context.get("palletLpn"));
-        }
-
-        if ("PALLET".equalsIgnoreCase(targetEntity) && entityRef != null && !entityRef.isBlank()) {
-            Optional<PalletEntity> palletOpt = palletRepository.findByPalletLpn(entityRef.trim());
-            if (palletOpt.isPresent()) {
-                PalletEntity pallet = palletOpt.get();
-                pallet.setStatus(targetStatus);
-                if (config.get("location") != null && !String.valueOf(config.get("location")).isBlank()) {
-                    pallet.setCurrentLocation(String.valueOf(config.get("location")));
-                }
-                palletRepository.save(pallet);
-                log.info("StateMutation: Pallet '{}' status set to '{}'", entityRef, targetStatus);
-                return NodeExecutionResult.success(Map.of("palletStatus", targetStatus, "palletLpn", entityRef));
-            }
-        }
-        return NodeExecutionResult.success(Map.of("entity", targetEntity, "status", targetStatus));
-    }
-
-    private NodeExecutionResult executeApiMapper(Map<String, Object> config, Map<String, Object> context) {
-        String mappingCode = String.valueOf(config.getOrDefault("mappingCode", "CUSTOM_API_MAPPER"));
-        String resourceId = String.valueOf(config.getOrDefault("resourceId", "LOGIQS-AMBIENT-WMS"));
-        String endpointUrl = config.get("endpointUrl") != null ? String.valueOf(config.get("endpointUrl")).trim() : null;
-        String httpMethod = config.get("httpMethod") != null ? String.valueOf(config.get("httpMethod")).trim().toUpperCase() : null;
-        String payloadTemplate = config.get("payloadTemplate") != null ? String.valueOf(config.get("payloadTemplate")).trim() : null;
-        String outputVariable = config.get("outputVariable") != null && !String.valueOf(config.get("outputVariable")).isBlank()
-                ? String.valueOf(config.get("outputVariable")).trim()
-                : "apiResponse";
-
-        Map<String, String> headers = new HashMap<>();
-
-        // 1. Resolve against stored mapping catalogue if mappingCode exists
-        Optional<ApiIntegrationMappingEntity> mappingOpt = mappingRepository.findByMappingCode(mappingCode);
-        if (mappingOpt.isPresent()) {
-            ApiIntegrationMappingEntity mapping = mappingOpt.get();
-            if (endpointUrl == null || endpointUrl.isBlank()) {
-                endpointUrl = mapping.getEndpointUrl();
-            }
-            if (httpMethod == null || httpMethod.isBlank()) {
-                httpMethod = mapping.getHttpMethod() != null ? mapping.getHttpMethod().toUpperCase() : "POST";
-            }
-            if (payloadTemplate == null || payloadTemplate.isBlank()) {
-                payloadTemplate = mapping.getPayloadTemplate();
-            }
-            if (mapping.getHeadersTemplate() != null) {
-                headers.putAll(dynamicPayloadEngine.buildHeaders(mapping.getHeadersTemplate(), context));
-            }
-        }
-
-        if (httpMethod == null || httpMethod.isBlank()) {
-            httpMethod = "POST";
-        }
-
-        // 2. Dynamic template variable interpolation using shared workflow context
-        String transformedPayload = null;
-        if (payloadTemplate != null && !payloadTemplate.isBlank()) {
-            try {
-                transformedPayload = dynamicPayloadEngine.buildPayload(payloadTemplate, context);
-            } catch (Exception ex) {
-                log.warn("API_MAPPER: Failed to interpolate payload template, using raw template: {}", ex.getMessage());
-                transformedPayload = payloadTemplate;
-            }
-        }
-
-        String resolvedUrl = (endpointUrl != null && !endpointUrl.isBlank())
-                ? dynamicPayloadEngine.resolveUrl(endpointUrl, context)
-                : "/api/v1/wms/" + mappingCode.toLowerCase();
-
-        log.info("API_MAPPER Node: Dispatching to {} [{}] (outputVariable={})", resolvedUrl, httpMethod, outputVariable);
-
-        // 3. Live HTTP/HTTPS dispatch if reachable
-        if (resolvedUrl != null && (resolvedUrl.startsWith("http://") || resolvedUrl.startsWith("https://"))) {
-            try {
-                SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-                requestFactory.setConnectTimeout(3000);
-                requestFactory.setReadTimeout(5000);
-
-                RestClient client = RestClient.builder().requestFactory(requestFactory).build();
-                RestClient.RequestBodySpec spec = client.method(HttpMethod.valueOf(httpMethod)).uri(resolvedUrl);
-                if (headers != null) {
-                    headers.forEach(spec::header);
-                }
-                if (!"GET".equalsIgnoreCase(httpMethod) && transformedPayload != null && !transformedPayload.isBlank()) {
-                    spec.body(transformedPayload);
-                }
-
-                ResponseEntity<String> response = spec.retrieve().toEntity(String.class);
-                int statusCode = response.getStatusCode().value();
-                String responseBodyStr = response.getBody() != null ? response.getBody() : "{}";
-
-                Object parsedBody;
-                try {
-                    parsedBody = objectMapper.readValue(responseBodyStr, Object.class);
-                } catch (Exception parseEx) {
-                    parsedBody = responseBodyStr;
-                }
-
-                Map<String, Object> out = new HashMap<>();
-                out.put(outputVariable, parsedBody);
-                out.put("apiResponse", parsedBody);
-                out.put("responseBody", parsedBody);
-                out.put("dispatchedApi", mappingCode);
-                out.put("targetEndpoint", resolvedUrl);
-                out.put("httpStatus", statusCode);
-                out.put("requestPayload", transformedPayload);
-                out.put("responseSnapshot", Map.of("success", statusCode >= 200 && statusCode < 300, "status", statusCode));
-
-                return NodeExecutionResult.success(out);
-            } catch (Exception httpEx) {
-                log.warn("API_MAPPER Node: Dispatch to {} failed ({}), generating structured simulated response", resolvedUrl, httpEx.getMessage());
-                Map<String, Object> simulatedBody = new HashMap<>();
-                simulatedBody.put("status", "SIMULATED_SUCCESS");
-                simulatedBody.put("acknowledged", true);
-                simulatedBody.put("dispatchedEndpoint", resolvedUrl);
-                simulatedBody.put("simulatedNotice", "Live endpoint unreachable (" + httpEx.getMessage() + "), response captured for orchestrator logs");
-                simulatedBody.put("timestamp", Instant.now().toString());
-
-                Map<String, Object> out = new HashMap<>();
-                out.put(outputVariable, simulatedBody);
-                out.put("apiResponse", simulatedBody);
-                out.put("responseBody", simulatedBody);
-                out.put("dispatchedApi", mappingCode);
-                out.put("targetEndpoint", resolvedUrl);
-                out.put("httpStatus", 200);
-                out.put("requestPayload", transformedPayload != null ? transformedPayload : "{}");
-                out.put("responseSnapshot", simulatedBody);
-                return NodeExecutionResult.success(out);
-            }
-        }
-
-        // 4. Relative or simulated API endpoint
-        Map<String, Object> mockResponse = new HashMap<>();
-        mockResponse.put("status", "CONFIRMED");
-        mockResponse.put("message", "Simulated external WMS API response");
-        mockResponse.put("resourceId", resourceId);
-        mockResponse.put("mappingCode", mappingCode);
-        mockResponse.put("endpoint", resolvedUrl);
-        mockResponse.put("simulatedJobId", "JOB-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
-        mockResponse.put("acknowledged", true);
-        mockResponse.put("timestamp", Instant.now().toString());
-
-        Map<String, Object> out = new HashMap<>();
-        out.put(outputVariable, mockResponse);
-        out.put("apiResponse", mockResponse);
-        out.put("responseBody", mockResponse);
-        out.put("dispatchedApi", mappingCode);
-        out.put("targetEndpoint", resolvedUrl);
-        out.put("httpStatus", 200);
-        out.put("requestPayload", transformedPayload != null ? transformedPayload : "{}");
-        out.put("responseSnapshot", mockResponse);
-        return NodeExecutionResult.success(out);
-    }
-
-    private NodeExecutionResult executeValidation(Map<String, Object> config, Map<String, Object> context) {
-        log.info("VALIDATION Node executed successfully: scope={}", config.get("validationScope"));
-        return NodeExecutionResult.success(Map.of(
-                "validationOutcome", "APPROVED",
-                "validatedAt", Instant.now().toString(),
-                "warningsCount", 0
-        ));
-    }
-
-    private NodeExecutionResult executeAsyncGate(Map<String, Object> config, 
-                                                 Map<String, Object> context, 
-                                                 WorkflowInstanceEntity instance) {
-        String correlationKey = "CORR-" + instance.getId().toString().substring(0, 8).toUpperCase();
-        log.info("ASYNC_GATE Node pausing flow. Awaiting callback key: '{}'", correlationKey);
-        return NodeExecutionResult.paused(correlationKey, Map.of("awaitingKey", correlationKey));
-    }
-
-    private NodeExecutionResult executeMathOperation(Map<String, Object> config, Map<String, Object> context) {
-        String operation = String.valueOf(config.getOrDefault("operation", "ADD")).toUpperCase();
-        String outputVar = String.valueOf(config.getOrDefault("outputVariable", "mathResult"));
-
-        double valA = resolveNumericOperand(config.get("operandA"), context, 0.0);
-        double valB = resolveNumericOperand(config.get("operandB"), context, 0.0);
-        double result;
-
-        switch (operation) {
-            case "SUBTRACT":
-                result = valA - valB;
-                break;
-            case "MULTIPLY":
-                result = valA * valB;
-                break;
-            case "DIVIDE":
-                result = (valB != 0) ? (valA / valB) : 0.0;
-                break;
-            case "PERCENTAGE":
-                result = (valB != 0) ? ((valA / valB) * 100.0) : 0.0;
-                break;
-            case "ROUND":
-                result = Math.round(valA);
-                break;
-            case "CEIL":
-                result = Math.ceil(valA);
-                break;
-            case "FLOOR":
-                result = Math.floor(valA);
-                break;
-            case "ADD":
-            default:
-                result = valA + valB;
-                break;
-        }
-
-        // Clean precision rounding to 4 decimal places
-        result = Math.round(result * 10000.0) / 10000.0;
-        log.info("MATH Node: {} {} {} = {} -> injected as '{}'", valA, operation, valB, result, outputVar);
-
-        return NodeExecutionResult.success(Map.of(
-                outputVar, result,
-                "mathOperation", operation,
-                "operandA", valA,
-                "operandB", valB
-        ));
-    }
-
-    private double resolveNumericOperand(Object operand, Map<String, Object> context, double fallback) {
-        if (operand == null) return fallback;
-        if (operand instanceof Number) return ((Number) operand).doubleValue();
-        String str = String.valueOf(operand).trim();
-        String lookupKey = str.startsWith("context.") ? str.substring(8) : str;
-        if (context.containsKey(lookupKey) && context.get(lookupKey) != null) {
-            Object ctxVal = context.get(lookupKey);
-            if (ctxVal instanceof Number) return ((Number) ctxVal).doubleValue();
-            try {
-                return Double.parseDouble(String.valueOf(ctxVal).trim());
-            } catch (NumberFormatException ignored) {}
-        }
-        try {
-            return Double.parseDouble(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
+        advanceWorkflow(instance, nodes, edges, stepSeq + 1, simulationMode);
     }
 
     // =========================================================================
-    // 3. ASYNC CALLBACK & RESUMPTION
+    // 4. ASYNC CALLBACK & RESUMPTION
     // =========================================================================
 
     @Transactional
@@ -556,17 +346,29 @@ public class WorkflowEngineService {
         instance.setCorrelationKey(null);
         instanceRepository.save(instance);
 
+        boolean simulationMode = Boolean.parseBoolean(String.valueOf(context.getOrDefault("isSimulated", false)));
         int nextSeq = logRepository.findByInstanceIdOrderByStepSequenceAsc(instance.getId()).size() + 1;
-        advanceWorkflow(instance, nodes, edges, nextSeq);
+        advanceWorkflow(instance, nodes, edges, nextSeq, simulationMode);
 
         return toInstanceDto(instance);
     }
+
+    // =========================================================================
+    // 5. OBSERVABILITY & DIAGNOSTICS
+    // =========================================================================
 
     @Transactional(readOnly = true)
     public List<WorkflowExecutionLogDto> getInstanceLogs(UUID instanceId) {
         return logRepository.findByInstanceIdOrderByStepSequenceAsc(instanceId).stream()
                 .map(this::toLogDto)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public WorkflowTraceDto getExecutionTrace(UUID instanceId) {
+        WorkflowInstanceEntity instance = instanceRepository.findById(instanceId)
+                .orElseThrow(() -> new IllegalArgumentException("Workflow instance not found: " + instanceId));
+        return structuredLogger.getExecutionTrace(instance);
     }
 
     @Transactional(readOnly = true)
@@ -581,25 +383,15 @@ public class WorkflowEngineService {
     }
 
     // =========================================================================
-    // 4. HELPERS & MAPPING
+    // 6. HELPERS & MAPPING
     // =========================================================================
 
-    private void recordExecutionLog(UUID instanceId, int seq, String nodeId, String type, 
-                                    String name, Map<String, Object> input, Map<String, Object> output, 
-                                    String status, long durationMs, String error) {
-        WorkflowExecutionLogEntity logEntity = WorkflowExecutionLogEntity.builder()
-                .instanceId(instanceId)
-                .stepSequence(seq)
-                .nodeId(nodeId)
-                .nodeType(type)
-                .nodeName(name)
-                .inputData(serializeMap(input))
-                .outputData(serializeMap(output))
-                .status(status)
-                .durationMs(durationMs)
-                .errorDetails(error)
-                .build();
-        logRepository.save(logEntity);
+    private Map<String, Object> findNode(List<Map<String, Object>> nodes, String nodeId) {
+        if (nodes == null || nodeId == null) return null;
+        return nodes.stream()
+                .filter(n -> nodeId.equals(String.valueOf(n.get("id"))))
+                .findFirst()
+                .orElse(null);
     }
 
     private WorkflowDefinitionDto toDefinitionDto(WorkflowDefinitionEntity entity) {

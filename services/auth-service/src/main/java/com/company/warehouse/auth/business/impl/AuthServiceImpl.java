@@ -23,8 +23,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -43,7 +41,6 @@ public class AuthServiceImpl implements AuthService {
     private final UserFacilityAssignmentRepository facilityAssignmentRepository;
     private final PasswordEncoder passwordEncoder;
 
-    private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_INSTANT;
     private static final String UNAMBIGUOUS_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 

@@ -4,6 +4,7 @@ import com.company.warehouse.common.client.software.auth.TokenManager;
 import com.company.warehouse.wes.api.dto.resource.ResourceRequestDto;
 import com.company.warehouse.wes.api.dto.resource.ResourceResponseDto;
 import com.company.warehouse.wes.business.resource.ResourceManager;
+import com.company.warehouse.wes.business.resource.composer.service.EntityServiceDispatcher;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ public class ResourceController {
 
     private final ResourceManager resourceManager;
     private final TokenManager tokenManager;
+    private final EntityServiceDispatcher serviceDispatcher;
 
     @PostMapping
     public ResponseEntity<ResourceResponseDto> createResource(@Valid @RequestBody ResourceRequestDto request) {
@@ -106,6 +108,19 @@ public class ResourceController {
     @GetMapping("/{resourceId}/token-status")
     public ResponseEntity<TokenManager.TokenStatus> getResourceTokenStatus(@PathVariable String resourceId) {
         return ResponseEntity.ok(tokenManager.getStatus(resourceId));
+    }
+
+    @PostMapping("/{resourceId}/methods/{methodName}/execute")
+    public ResponseEntity<com.company.warehouse.wes.domain.resource.MethodExecutionResult> executeMethod(
+            @PathVariable String resourceId,
+            @PathVariable String methodName,
+            @RequestBody(required = false) Map<String, Object> parameters) {
+        log.info("POST /api/v1/wes/resources/{}/methods/{}/execute: Dispatching service via Entity Composer",
+                resourceId, methodName);
+        com.company.warehouse.wes.domain.resource.MethodExecutionResult result =
+                serviceDispatcher.execute(resourceId, methodName, parameters);
+        int code = result.getStatusCode() != null ? result.getStatusCode() : (result.isSuccess() ? 200 : 500);
+        return ResponseEntity.status(code).body(result);
     }
 
     @DeleteMapping("/{resourceId}")

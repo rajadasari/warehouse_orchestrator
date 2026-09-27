@@ -47,6 +47,10 @@
             <groupId>com.company.warehouse</groupId>
             <artifactId>common-software-client</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.company.warehouse</groupId>
+            <artifactId>common-resource</artifactId>
+        </dependency>
 
         <!-- Spring Boot Starters -->
         <dependency>

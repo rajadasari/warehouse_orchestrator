@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 @Data
@@ -36,6 +37,11 @@ public class NodeExecutionResult {
                 .correlationKey(correlationKey)
                 .outputData(intermediateData != null ? intermediateData : Collections.emptyMap())
                 .build();
+    }
+
+    public static NodeExecutionResult pausedWaiting(String correlationKey, Map<String, ?> intermediateData) {
+        Map<String, Object> copy = intermediateData != null ? new HashMap<>(intermediateData) : Collections.emptyMap();
+        return paused(correlationKey, copy);
     }
 
     public static NodeExecutionResult failed(String error) {

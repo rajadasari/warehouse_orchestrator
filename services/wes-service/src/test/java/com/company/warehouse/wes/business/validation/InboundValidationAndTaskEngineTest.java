@@ -22,7 +22,6 @@ import com.company.warehouse.wes.data.entity.ItemMasterEntity;
 import com.company.warehouse.wes.data.entity.PalletEntity;
 import com.company.warehouse.wes.data.entity.PalletTypeMasterEntity;
 import com.company.warehouse.wes.data.entity.SkuMasterEntity;
-import com.company.warehouse.wes.data.entity.TaskOperationEntity;
 import com.company.warehouse.wes.data.entity.WesTaskEntity;
 import com.company.warehouse.wes.data.repository.ItemMasterRepository;
 import com.company.warehouse.wes.data.repository.PalletRepository;
