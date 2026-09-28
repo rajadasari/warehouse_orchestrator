@@ -53,8 +53,8 @@ public class IndustrialPlcServiceExecutor implements EntityServiceExecutor {
         if (serviceName == null) return false;
         String mName = serviceName.trim().toUpperCase();
         if (SUPPORTED_METHODS.contains(mName)) return true;
-        return "PLC".equalsIgnoreCase(category) || "HARDWARE".equalsIgnoreCase(category)
-                || (protocol != null && (protocol.toLowerCase().contains("opc") || protocol.toLowerCase().contains("modbus")));
+        return "PLC".equalsIgnoreCase(category) || "HARDWARE".equalsIgnoreCase(category) || "EQUIPMENT".equalsIgnoreCase(category)
+                || (protocol != null && (protocol.toLowerCase().contains("opc") || protocol.toLowerCase().contains("modbus") || protocol.toLowerCase().contains("s7")));
     }
 
     @Override
@@ -72,14 +72,19 @@ public class IndustrialPlcServiceExecutor implements EntityServiceExecutor {
                 case "WRITE_TAG" -> handleWriteTag(resourceId, endpointUrl, params, start);
                 case "TRIGGER_SCENARIO" -> handleTriggerScenario(resourceId, params, start);
                 case "BROWSE_TAGS", "BROWSE" -> handleBrowseTags(resourceId, endpointUrl, params, start);
-                default -> MethodExecutionResult.builder()
-                        .success(false)
-                        .resourceId(resourceId)
-                        .methodName(mName)
-                        .message("Unsupported PLC method: " + mName)
-                        .statusCode(400)
-                        .executionTimeMs(System.currentTimeMillis() - start)
-                        .build();
+                default -> {
+                    if (canHandleAsGenericTagWrite(instance, mName, params)) {
+                        yield handleGenericCommandTagWrite(instance, endpointUrl, mName, params, start);
+                    }
+                    yield MethodExecutionResult.builder()
+                            .success(false)
+                            .resourceId(resourceId)
+                            .methodName(mName)
+                            .message("Unsupported PLC method: " + mName)
+                            .statusCode(400)
+                            .executionTimeMs(System.currentTimeMillis() - start)
+                            .build();
+                }
             };
         } catch (Exception e) {
             log.error("Error executing PLC method '{}' on resource '{}': {}", mName, resourceId, e.getMessage(), e);
@@ -95,15 +100,113 @@ public class IndustrialPlcServiceExecutor implements EntityServiceExecutor {
         }
     }
 
-    private synchronized OpcUaClient getOrCreateClient(String endpointUrl) throws Exception {
+    private synchronized OpcUaClient getOrCreateClient(ComposedEntityInstance instance, String endpointUrl) throws Exception {
         OpcUaClient existing = miloClientCache.get(endpointUrl);
         if (existing != null) {
             return existing;
         }
-        OpcUaClient client = OpcUaClient.create(endpointUrl);
+
+        Map<String, Object> props = (instance != null && instance.getEffectiveProperties() != null)
+                ? instance.getEffectiveProperties()
+                : Collections.emptyMap();
+
+        String authType = String.valueOf(props.getOrDefault("authType", "ANONYMOUS")).toUpperCase();
+        String secPolicy = String.valueOf(props.getOrDefault("securityPolicy", "NONE")).toUpperCase();
+        String user = props.containsKey("username") ? String.valueOf(props.get("username")) : "";
+        String pass = props.containsKey("password") ? String.valueOf(props.get("password")) : "";
+
+        org.eclipse.milo.opcua.stack.core.security.SecurityPolicy targetPolicy = switch (secPolicy) {
+            case "BASIC256_SHA256", "BASIC256SHA256" -> org.eclipse.milo.opcua.stack.core.security.SecurityPolicy.Basic256Sha256;
+            case "AES128_SHA256_RSAOAEP" -> org.eclipse.milo.opcua.stack.core.security.SecurityPolicy.Aes128_Sha256_RsaOaep;
+            default -> org.eclipse.milo.opcua.stack.core.security.SecurityPolicy.None;
+        };
+
+        org.eclipse.milo.opcua.sdk.client.api.identity.IdentityProvider identityProvider = "USERNAME_PASSWORD".equals(authType)
+                ? new org.eclipse.milo.opcua.sdk.client.api.identity.UsernameProvider(user, pass)
+                : new org.eclipse.milo.opcua.sdk.client.api.identity.AnonymousProvider();
+
+        OpcUaClient client = OpcUaClient.create(
+                endpointUrl,
+                endpoints -> endpoints.stream()
+                        .filter(e -> e.getSecurityPolicyUri().equals(targetPolicy.getUri()))
+                        .findFirst(),
+                configBuilder -> configBuilder
+                        .setApplicationName(org.eclipse.milo.opcua.stack.core.types.builtin.LocalizedText.english("Warehouse-Orchestrator-WCS"))
+                        .setApplicationUri("urn:company:warehouse:wcs:" + (instance != null ? instance.getResourceId() : "client"))
+                        .setIdentityProvider(identityProvider)
+                        .build()
+        );
         client.connect().get();
         miloClientCache.put(endpointUrl, client);
         return client;
+    }
+
+    private OpcUaClient getOrCreateClient(String endpointUrl) throws Exception {
+        return getOrCreateClient(null, endpointUrl);
+    }
+
+    private boolean canHandleAsGenericTagWrite(ComposedEntityInstance instance, String mName, Map<String, Object> params) {
+        if (params != null && (params.containsKey("nodeId") || params.containsKey("tag")) && params.containsKey("value")) {
+            return true;
+        }
+        if (instance.getMethodsConfig() != null && instance.getMethodsConfig().containsKey(mName)) {
+            Object cfgObj = instance.getMethodsConfig().get(mName);
+            if (cfgObj instanceof Map<?, ?> cfgMap) {
+                return cfgMap.containsKey("nodeId") || cfgMap.containsKey("tag") || cfgMap.containsKey("path");
+            }
+        }
+        return false;
+    }
+
+    private MethodExecutionResult handleGenericCommandTagWrite(
+            ComposedEntityInstance instance,
+            String endpointUrl,
+            String mName,
+            Map<String, Object> params,
+            long start) {
+        String resourceId = instance.getResourceId();
+        String targetNodeId = null;
+        Object targetVal = null;
+
+        if (params != null && (params.containsKey("nodeId") || params.containsKey("tag"))) {
+            targetNodeId = String.valueOf(params.containsKey("nodeId") ? params.get("nodeId") : params.get("tag")).trim();
+            targetVal = params.get("value");
+        } else if (instance.getMethodsConfig() != null && instance.getMethodsConfig().containsKey(mName)) {
+            Object cfgObj = instance.getMethodsConfig().get(mName);
+            if (cfgObj instanceof Map<?, ?> cfgMap) {
+                if (cfgMap.containsKey("nodeId")) targetNodeId = String.valueOf(cfgMap.get("nodeId")).trim();
+                else if (cfgMap.containsKey("tag")) targetNodeId = String.valueOf(cfgMap.get("tag")).trim();
+                else if (cfgMap.containsKey("path")) targetNodeId = String.valueOf(cfgMap.get("path")).trim();
+
+                if (cfgMap.containsKey("value")) targetVal = cfgMap.get("value");
+                else if (cfgMap.containsKey("targetValue")) targetVal = cfgMap.get("targetValue");
+            }
+        }
+
+        if (targetVal == null && params != null && params.containsKey("value")) {
+            targetVal = params.get("value");
+        }
+        if (targetVal == null) {
+            targetVal = true;
+        }
+
+        if (targetNodeId == null || targetNodeId.isBlank()) {
+            return MethodExecutionResult.builder()
+                    .success(false)
+                    .resourceId(resourceId)
+                    .methodName(mName)
+                    .message("No target PLC NodeId/tag configured for command: " + mName)
+                    .statusCode(400)
+                    .executionTimeMs(System.currentTimeMillis() - start)
+                    .build();
+        }
+
+        Map<String, Object> writeParams = new LinkedHashMap<>();
+        writeParams.put("nodeId", targetNodeId);
+        writeParams.put("value", targetVal);
+        log.info("Executing PLC equipment command '{}' on resource '{}' -> writing '{}' to NodeId '{}'",
+                mName, resourceId, targetVal, targetNodeId);
+        return handleWriteTag(resourceId, endpointUrl, writeParams, start);
     }
 
     private MethodExecutionResult handleReadTag(String resourceId, String endpointUrl, Map<String, Object> params, long start) {

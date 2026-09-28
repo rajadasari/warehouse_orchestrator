@@ -36,6 +36,14 @@ export default defineConfig({
           });
         }
       },
+      '/api/v1/network': {
+        target: process.env.WES_SERVICE_URL || 'http://127.0.0.1:8086',
+        changeOrigin: true
+      },
+      '/api/v1/snippets': {
+        target: process.env.WES_SERVICE_URL || 'http://127.0.0.1:8086',
+        changeOrigin: true
+      },
       '/api/v1/wcs': {
         target: process.env.WCS_SERVICE_URL || 'http://127.0.0.1:8084',
         changeOrigin: true,

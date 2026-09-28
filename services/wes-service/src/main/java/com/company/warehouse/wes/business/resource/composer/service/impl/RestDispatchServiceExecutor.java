@@ -33,8 +33,17 @@ public class RestDispatchServiceExecutor implements EntityServiceExecutor {
 
     @Override
     public boolean supports(String serviceName, String protocol, String category) {
-        // Acts as the general dispatcher for REST/SOFTWARE methods
-        return "REST".equalsIgnoreCase(protocol) || "HTTP".equalsIgnoreCase(protocol) || "SOFTWARE".equalsIgnoreCase(category);
+        if (protocol != null && !protocol.isBlank()) {
+            String p = protocol.trim().toUpperCase();
+            if (p.equals("REST") || p.equals("HTTP") || p.equals("HTTPS")) {
+                return true;
+            }
+            if (p.equals("OPC_UA") || p.startsWith("OPC") || p.contains("MODBUS") || p.contains("S7") || p.equals("MQTT") || p.contains("TCP_SOCKET")) {
+                return false;
+            }
+        }
+        return "REST".equalsIgnoreCase(protocol) || "HTTP".equalsIgnoreCase(protocol)
+                || ("SOFTWARE".equalsIgnoreCase(category) && (protocol == null || protocol.isBlank() || "http".equalsIgnoreCase(protocol)));
     }
 
     @Override

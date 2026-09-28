@@ -6,8 +6,6 @@ import com.company.warehouse.wes.business.resource.composer.model.EntityBasicInf
 import com.company.warehouse.wes.business.resource.composer.model.PropertyBaseType;
 import com.company.warehouse.wes.business.resource.composer.model.PropertyDefinition;
 import com.company.warehouse.wes.business.resource.composer.model.ServiceDefinition;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceSafetyTier;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceType;
 import com.company.warehouse.wes.data.entity.ResourceTemplateEntity;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,14 +54,14 @@ public class EntityComposerMapper {
         for (ServiceDefinition s : template.getServiceDefinitions()) {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("name", s.getName());
-            map.put("type", s.getType() != null ? s.getType().name() : "EXECUTION");
-            map.put("safetyTier", s.getSafetyTier() != null ? s.getSafetyTier().name() : "OPERATIONAL");
+            if (s.getDisplayName() != null) map.put("displayName", s.getDisplayName());
+            if (s.getCategory() != null) map.put("category", s.getCategory());
             if (s.getDescription() != null) map.put("description", s.getDescription());
-            if (s.getSupportedStrategies() != null) map.put("supportedStrategies", s.getSupportedStrategies());
             if (s.getPathTemplate() != null) map.put("pathTemplate", s.getPathTemplate());
             if (s.getHttpMethod() != null) map.put("httpMethod", s.getHttpMethod());
             if (s.getParametersSchema() != null && !s.getParametersSchema().isEmpty()) map.put("parametersSchema", s.getParametersSchema());
-            if (s.getSamplePayload() != null && !s.getSamplePayload().isEmpty()) map.put("samplePayload", s.getSamplePayload());
+            if (s.getOutputSchema() != null && !s.getOutputSchema().isEmpty()) map.put("outputSchema", s.getOutputSchema());
+            if (s.getDefaultHeaders() != null && !s.getDefaultHeaders().isEmpty()) map.put("defaultHeaders", s.getDefaultHeaders());
             methodSchemaList.add(map);
         }
 
@@ -145,23 +143,29 @@ public class EntityComposerMapper {
                 String name = String.valueOf(map.get("name"));
                 if (name == null || name.trim().isEmpty() || name.equals("null")) continue;
 
-                ServiceType type = ServiceType.fromString(String.valueOf(map.get("type")));
-                ServiceSafetyTier tier = ServiceSafetyTier.fromString(String.valueOf(map.get("safetyTier")));
+                String displayName = map.containsKey("displayName") ? String.valueOf(map.get("displayName")) : name;
+                String category = map.containsKey("category") ? String.valueOf(map.get("category")) : "General";
                 String desc = map.containsKey("description") ? String.valueOf(map.get("description")) : null;
                 String path = map.containsKey("pathTemplate") ? String.valueOf(map.get("pathTemplate"))
                         : map.containsKey("path") ? String.valueOf(map.get("path")) : null;
                 String method = map.containsKey("httpMethod") ? String.valueOf(map.get("httpMethod")) : "POST";
-                List<String> strats = map.containsKey("supportedStrategies") && map.get("supportedStrategies") instanceof List
-                        ? (List<String>) map.get("supportedStrategies") : Collections.emptyList();
+                Map<String, Object> paramsSchema = map.containsKey("parametersSchema") && map.get("parametersSchema") instanceof Map
+                        ? (Map<String, Object>) map.get("parametersSchema") : null;
+                Map<String, Object> outSchema = map.containsKey("outputSchema") && map.get("outputSchema") instanceof Map
+                        ? (Map<String, Object>) map.get("outputSchema") : null;
+                Map<String, String> defaultHdrs = map.containsKey("defaultHeaders") && map.get("defaultHeaders") instanceof Map
+                        ? (Map<String, String>) map.get("defaultHeaders") : null;
 
                 services.add(ServiceDefinition.builder()
                         .name(name)
-                        .type(type)
-                        .safetyTier(tier)
+                        .displayName(displayName)
+                        .category(category)
                         .description(desc)
                         .pathTemplate(path)
                         .httpMethod(method)
-                        .supportedStrategies(strats)
+                        .parametersSchema(paramsSchema)
+                        .outputSchema(outSchema)
+                        .defaultHeaders(defaultHdrs)
                         .build());
             }
         }
@@ -219,11 +223,15 @@ public class EntityComposerMapper {
             if (name == null || name.trim().isEmpty() || name.equals("null")) continue;
             services.add(ServiceDefinition.builder()
                     .name(name)
-                    .type(ServiceType.fromString(String.valueOf(map.get("type"))))
-                    .safetyTier(ServiceSafetyTier.fromString(String.valueOf(map.get("safetyTier"))))
+                    .displayName(map.containsKey("displayName") ? String.valueOf(map.get("displayName")) : name)
+                    .category(map.containsKey("category") ? String.valueOf(map.get("category")) : "General")
                     .description(map.containsKey("description") ? String.valueOf(map.get("description")) : null)
                     .pathTemplate(map.containsKey("pathTemplate") ? String.valueOf(map.get("pathTemplate")) : null)
                     .httpMethod(map.containsKey("httpMethod") ? String.valueOf(map.get("httpMethod")) : "POST")
+                    .parametersSchema(map.containsKey("parametersSchema") && map.get("parametersSchema") instanceof Map
+                            ? (Map<String, Object>) map.get("parametersSchema") : null)
+                    .outputSchema(map.containsKey("outputSchema") && map.get("outputSchema") instanceof Map
+                            ? (Map<String, Object>) map.get("outputSchema") : null)
                     .build());
         }
 

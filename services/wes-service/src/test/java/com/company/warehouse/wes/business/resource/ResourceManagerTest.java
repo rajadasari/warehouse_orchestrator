@@ -15,6 +15,7 @@ import com.company.warehouse.wes.business.resource.composer.archetype.EntityArch
 import com.company.warehouse.wes.business.resource.composer.archetype.OpcUaClientEntityArchetype;
 import com.company.warehouse.wes.business.resource.composer.archetype.OpcUaServerEntityArchetype;
 import com.company.warehouse.wes.business.resource.composer.archetype.RestSoftwareEntityArchetype;
+import com.company.warehouse.wes.business.resource.composer.engine.EntityMethodResolutionEngine;
 import com.company.warehouse.wes.business.resource.composer.engine.EntityPropertyResolutionEngine;
 import com.company.warehouse.wes.business.resource.composer.validation.EntityTemplateValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -62,12 +63,14 @@ class ResourceManagerTest {
         EntityPropertyResolutionEngine propertyResolutionEngine = new EntityPropertyResolutionEngine(archetypeRegistry);
         EntityTemplateValidator templateValidator = new EntityTemplateValidator();
         EntityComposerMapper composerMapper = new EntityComposerMapper(objectMapper);
+        EntityMethodResolutionEngine methodResolutionEngine = new EntityMethodResolutionEngine(archetypeRegistry, templateRepository, objectMapper);
         resourceManager = new ResourceManager(
                 resourceRepository,
                 templateRepository,
                 relationshipRepository,
                 objectMapper,
                 propertyResolutionEngine,
+                methodResolutionEngine,
                 archetypeRegistry,
                 templateValidator,
                 composerMapper,

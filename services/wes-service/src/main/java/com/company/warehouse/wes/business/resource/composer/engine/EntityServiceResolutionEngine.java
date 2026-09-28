@@ -34,12 +34,13 @@ public class EntityServiceResolutionEngine {
         for (ServiceDefinition def : templateServices) {
             Map<String, Object> serviceMap = new HashMap<>();
             serviceMap.put("name", def.getName());
-            serviceMap.put("type", def.getType().name());
-            serviceMap.put("safetyTier", def.getSafetyTier().name());
+            if (def.getDisplayName() != null) serviceMap.put("displayName", def.getDisplayName());
+            if (def.getCategory() != null) serviceMap.put("category", def.getCategory());
             serviceMap.put("description", def.getDescription());
-            serviceMap.put("supportedStrategies", def.getSupportedStrategies());
             serviceMap.put("defaultHttpMethod", def.getHttpMethod());
             serviceMap.put("defaultPathTemplate", def.getPathTemplate());
+            if (def.getParametersSchema() != null) serviceMap.put("parametersSchema", def.getParametersSchema());
+            if (def.getOutputSchema() != null) serviceMap.put("outputSchema", def.getOutputSchema());
 
             // Overlay instance bindings if configured
             if (instanceMethodsConfig != null && instanceMethodsConfig.containsKey(def.getName())) {

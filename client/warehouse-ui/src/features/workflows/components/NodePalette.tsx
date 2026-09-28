@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   PlayCircle, 
@@ -12,9 +12,13 @@ import {
   ChevronRight,
   Plus,
   Calculator,
-  MousePointerClick
+  MousePointerClick,
+  Cpu,
+  Boxes
 } from 'lucide-react';
 import { PALETTE_ITEMS, PaletteItem } from '../types';
+import { workflowService, WorkflowNodeTemplate } from '../../../services/workflowService';
+import { fetchResourcesApi } from '../../../services/resourceService';
 
 interface NodePaletteProps {
   onAddNode: (item: PaletteItem) => void;
@@ -24,19 +28,82 @@ interface NodePaletteProps {
 export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode, onDragStart }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+  const [composedItems, setComposedItems] = useState<PaletteItem[]>([]);
+  const [dynamicResourceItems, setDynamicResourceItems] = useState<PaletteItem[]>([]);
 
   const categories = [
     { id: 'ALL', label: 'All Nodes' },
+    { id: 'EQUIPMENT', label: 'Equipment' },
+    { id: 'COMPOSED', label: 'Composed' },
     { id: 'TRIGGER', label: 'Triggers' },
-    { id: 'MATH', label: 'Math' },
+    { id: 'INTEGRATION', label: 'APIs' },
     { id: 'LOGIC', label: 'Logic' },
     { id: 'STATE', label: 'State' },
-    { id: 'INTEGRATION', label: 'APIs' },
     { id: 'GATE', label: 'Gates' },
     { id: 'TERMINAL', label: 'Finish' }
   ];
 
-  const filteredItems = PALETTE_ITEMS.filter(item => {
+  // Load composed node templates and active equipment methods
+  useEffect(() => {
+    // 1. Fetch Composed Node Templates
+    workflowService.getAllNodeTemplates()
+      .then(templates => {
+        const items: PaletteItem[] = (templates || []).map((t: WorkflowNodeTemplate) => ({
+          type: (t.nodeType as any) || 'RESOURCE_ACTION',
+          label: t.name,
+          category: (t.category as any) || 'COMPOSED',
+          description: t.description || `Custom template ${t.templateCode}`,
+          defaultConfig: t.configuration || {},
+          iconName: t.icon || 'Boxes',
+          badgeColor: t.color === 'emerald' ? '#10b981' : (t.color === 'violet' || t.color === 'purple' ? '#8b5cf6' : '#38bdf8'),
+          accentBorder: '#7c3aed',
+          glowColor: 'rgba(139, 92, 246, 0.4)'
+        }));
+        setComposedItems(items);
+      })
+      .catch(() => setComposedItems([]));
+
+    // 2. Fetch Active Resources and dynamically generate method nodes
+    fetchResourcesApi()
+      .then(resources => {
+        const dynamicItems: PaletteItem[] = [];
+        (resources || []).forEach(res => {
+          const methods = Array.isArray(res.effectiveMethods) ? res.effectiveMethods : [];
+          methods.forEach(m => {
+            const methodName = String(m.methodName || m.name || '');
+            if (!methodName) return;
+            const displayName = String(m.displayName || methodName);
+            dynamicItems.push({
+              type: 'RESOURCE_ACTION',
+              label: `${res.name || res.resourceId}: ${displayName}`,
+              category: 'EQUIPMENT',
+              description: String(m.description || `Invoke ${methodName} on ${res.name}`),
+              defaultConfig: {
+                resourceCode: res.resourceId || res.name,
+                methodName,
+                parameters: {},
+                timeoutMs: 5000
+              },
+              iconName: 'Cpu',
+              badgeColor: '#10b981',
+              accentBorder: '#059669',
+              glowColor: 'rgba(16, 185, 129, 0.4)'
+            });
+          });
+        });
+        setDynamicResourceItems(dynamicItems);
+      })
+      .catch(() => setDynamicResourceItems([]));
+  }, []);
+
+  // Combine standard palette items, dynamic equipment items, and user-composed items
+  const allItems: PaletteItem[] = [
+    ...PALETTE_ITEMS,
+    ...dynamicResourceItems,
+    ...composedItems
+  ];
+
+  const filteredItems = allItems.filter(item => {
     const matchesSearch = item.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           item.type.toLowerCase().includes(searchTerm.toLowerCase());
@@ -56,6 +123,8 @@ export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode, onDragStart
       case 'GitBranch': return <GitBranch size={18} />;
       case 'Flag': return <Flag size={18} />;
       case 'MousePointerClick': return <MousePointerClick size={18} />;
+      case 'Cpu': return <Cpu size={18} />;
+      case 'Boxes': return <Boxes size={18} />;
       default: return <PlayCircle size={18} />;
     }
   };
@@ -99,7 +168,7 @@ export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode, onDragStart
             color: '#38bdf8',
             fontWeight: 600
           }}>
-            {PALETTE_ITEMS.length} Blocks
+            {allItems.length} Blocks
           </span>
         </div>
 
@@ -176,9 +245,9 @@ export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode, onDragStart
         gap: '12px',
         boxSizing: 'border-box'
       }}>
-        {filteredItems.map(item => (
+        {filteredItems.map((item, idx) => (
           <div
-            key={item.label + item.type}
+            key={item.label + item.type + idx}
             draggable
             onDragStart={(e) => onDragStart(e, item)}
             onClick={() => onAddNode(item)}

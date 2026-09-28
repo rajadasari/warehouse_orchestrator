@@ -626,8 +626,8 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
                     httpMethod={cfg.httpMethod}
                     port={cfg.port}
                     urlPath={cfg.urlPath}
-                    type={m.type}
-                    safetyTier={m.safetyTier}
+                    type={m.type || 'EXECUTION'}
+                    safetyTier={m.safetyTier || 'OPERATIONAL'}
                     isDefault
                     isExpanded={isExpanded}
                     onToggleExpand={() =>
@@ -637,7 +637,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
                   {isExpanded && (
                     <MethodExpansionDrawer
                       methodName={m.name}
-                      methodType={m.type}
+                      methodType={m.type || 'EXECUTION'}
                       config={cfg}
                       onConfigChange={updated =>
                         handleDrawerConfigChange(m.name, updated)

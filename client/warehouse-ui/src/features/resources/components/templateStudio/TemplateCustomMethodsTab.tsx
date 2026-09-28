@@ -1,7 +1,8 @@
-import React from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Trash2, X, Sparkles, ListFilter } from 'lucide-react';
 import { Button } from '../../../../components/common/Button';
 import { MethodDefinition } from '../../types/resourceEnums';
+import { VisualSnippetMethodComposer } from './VisualSnippetMethodComposer';
 
 interface TemplateCustomMethodsTabProps {
   customMethods: MethodDefinition[];
@@ -26,165 +27,233 @@ export const TemplateCustomMethodsTab: React.FC<TemplateCustomMethodsTabProps> =
   handleAddCommand,
   handleRemoveCommand
 }) => {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-          Define callable operations, service methods, and hardware commands (e.g. `dockToCharger`, `syncOrders`, `pingHealth`).
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          leftIcon={<Plus size={13} />}
-          onClick={handleAddCustomMethod}
-          style={{ minHeight: '44px' }}
-        >
-          Add Method
-        </Button>
-      </div>
+  const [activeMode, setActiveMode] = useState<'LIST' | 'VISUAL_COMPOSER'>('VISUAL_COMPOSER');
 
-      {customMethods.length === 0 ? (
-        <div style={{
-          padding: '40px',
-          textAlign: 'center',
-          backgroundColor: 'var(--bg-surface-subtle)',
-          borderRadius: '8px',
-          border: '1px dashed var(--border-default)',
-          color: 'var(--text-secondary)',
-          fontSize: '12.5px'
-        }}>
-          No methods defined for this template yet. Click &quot;Add Method&quot; to define template execution services or API commands.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {customMethods.map((m, idx) => (
-            <div
-              key={idx}
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Mode Switcher Banner */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '10px 14px',
+        backgroundColor: 'var(--bg-surface-subtle)',
+        border: '1px solid var(--border-default)',
+        borderRadius: '8px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            Design Mode:
+          </span>
+          <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-surface)', padding: '3px', borderRadius: '6px', border: '1px solid var(--border-default)' }}>
+            <button
+              type="button"
+              onClick={() => setActiveMode('VISUAL_COMPOSER')}
               style={{
-                padding: '12px 14px',
-                backgroundColor: 'var(--bg-surface-subtle)',
-                border: '1px solid var(--border-default)',
-                borderRadius: '8px',
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '8px'
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                border: 'none',
+                backgroundColor: activeMode === 'VISUAL_COMPOSER' ? '#3B82F6' : 'transparent',
+                color: activeMode === 'VISUAL_COMPOSER' ? '#ffffff' : 'var(--text-secondary)',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer'
               }}
             >
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1.5fr 40px', gap: '10px', alignItems: 'center' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '3px' }}>
-                    Method Name
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. jogForward"
-                    value={m.name}
-                    onChange={e => handleUpdateCustomMethod(idx, { name: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid var(--border-default)',
-                      backgroundColor: 'var(--bg-surface)',
-                      color: 'var(--text-primary)',
-                      fontSize: '12px',
-                      fontFamily: 'monospace'
-                    }}
-                  />
-                </div>
+              <Sparkles size={13} /> Visual Snippet Composer
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMode('LIST')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                border: 'none',
+                backgroundColor: activeMode === 'LIST' ? '#3B82F6' : 'transparent',
+                color: activeMode === 'LIST' ? '#ffffff' : 'var(--text-secondary)',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              <ListFilter size={13} /> Defined Methods ({customMethods.length})
+            </button>
+          </div>
+        </div>
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '3px' }}>
-                    Execution Type
-                  </label>
-                  <select
-                    value={m.type}
-                    onChange={e => handleUpdateCustomMethod(idx, { type: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '6px 8px',
-                      borderRadius: '4px',
-                      border: '1px solid var(--border-default)',
-                      backgroundColor: 'var(--bg-surface)',
-                      color: 'var(--text-primary)',
-                      fontSize: '12px'
-                    }}
-                  >
-                    <option value="CONTROL">CONTROL</option>
-                    <option value="DIAGNOSTIC">DIAGNOSTIC</option>
-                    <option value="EXECUTION">EXECUTION</option>
-                    <option value="TELEMETRY">TELEMETRY</option>
-                  </select>
-                </div>
+        {activeMode === 'LIST' && (
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<Plus size={13} />}
+            onClick={handleAddCustomMethod}
+            style={{ minHeight: '36px' }}
+          >
+            Add Method
+          </Button>
+        )}
+      </div>
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '3px' }}>
-                    Safety Tier (IEC 62443)
-                  </label>
-                  <select
-                    value={m.safetyTier || 'OPERATIONAL'}
-                    onChange={e => handleUpdateCustomMethod(idx, { safetyTier: e.target.value as 'READ_ONLY' | 'OPERATIONAL' | 'SAFETY_CRITICAL' })}
-                    style={{
-                      width: '100%',
-                      padding: '6px 8px',
-                      borderRadius: '4px',
-                      border: '1px solid var(--border-default)',
-                      backgroundColor: 'var(--bg-surface)',
-                      color: 'var(--text-primary)',
-                      fontSize: '12px'
-                    }}
-                  >
-                    <option value="READ_ONLY">READ_ONLY</option>
-                    <option value="OPERATIONAL">OPERATIONAL</option>
-                    <option value="SAFETY_CRITICAL">SAFETY_CRITICAL</option>
-                  </select>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-                  <button
-                    onClick={() => handleRemoveCustomMethod(idx)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#EF4444',
-                      cursor: 'pointer',
-                      padding: '6px',
-                      minWidth: '40px',
-                      minHeight: '40px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                    title="Delete method"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <input
-                  type="text"
-                  placeholder="Description of operation and expected machine response..."
-                  value={m.description || ''}
-                  onChange={e => handleUpdateCustomMethod(idx, { description: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '5px 8px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-default)',
-                    backgroundColor: 'var(--bg-surface)',
-                    color: 'var(--text-primary)',
-                    fontSize: '11.5px'
-                  }}
-                />
-              </div>
-            </div>
-          ))}
+      {/* Visual Composer View */}
+      {activeMode === 'VISUAL_COMPOSER' && (
+        <div>
+          <VisualSnippetMethodComposer />
         </div>
       )}
 
-      {/* Supported Command Chips */}
+      {/* Methods List View */}
+      {activeMode === 'LIST' && (
+        <>
+          {customMethods.length === 0 ? (
+            <div style={{
+              padding: '40px',
+              textAlign: 'center',
+              backgroundColor: 'var(--bg-surface-subtle)',
+              borderRadius: '8px',
+              border: '1px dashed var(--border-default)',
+              color: 'var(--text-secondary)',
+              fontSize: '12.5px'
+            }}>
+              No custom methods defined yet. Click &quot;Add Method&quot; or switch to Visual Snippet Composer.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {customMethods.map((m, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    padding: '14px',
+                    backgroundColor: 'var(--bg-surface-subtle)',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}
+                >
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 1fr 40px', gap: '10px', alignItems: 'center' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                        Method Identifier
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. jogForward"
+                        value={m.name}
+                        onChange={e => handleUpdateCustomMethod(idx, { name: e.target.value })}
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-default)',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px',
+                          fontFamily: 'monospace'
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                        Display Name
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Jog Conveyor Forward"
+                        value={m.displayName || ''}
+                        onChange={e => handleUpdateCustomMethod(idx, { displayName: e.target.value })}
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-default)',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px'
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                        Category
+                      </label>
+                      <select
+                        value={m.category || 'HARDWARE'}
+                        onChange={e => handleUpdateCustomMethod(idx, { category: e.target.value })}
+                        style={{
+                          width: '100%',
+                          padding: '6px 8px',
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-default)',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px'
+                        }}
+                      >
+                        <option value="HARDWARE">HARDWARE</option>
+                        <option value="API">API</option>
+                        <option value="LOGIC">LOGIC</option>
+                        <option value="CALCULATION">CALCULATION</option>
+                        <option value="DIAGNOSTIC">DIAGNOSTIC</option>
+                        <option value="CUSTOM">CUSTOM</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+                      <button
+                        onClick={() => handleRemoveCustomMethod(idx)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#EF4444',
+                          cursor: 'pointer',
+                          padding: '6px',
+                          minWidth: '40px',
+                          minHeight: '40px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Delete method"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="Description of operation and expected response..."
+                      value={m.description || ''}
+                      onChange={e => handleUpdateCustomMethod(idx, { description: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--border-default)',
+                        backgroundColor: 'var(--bg-surface)',
+                        color: 'var(--text-primary)',
+                        fontSize: '12px'
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Supported Direct Commands (Tags) */}
       <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--border-default)' }}>
         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>
           Supported Direct Commands (Tags)

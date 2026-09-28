@@ -30,7 +30,7 @@ class ResourceShapeTest {
                         PropertyDefinition.booleanProp("isCharging", true, false)
                 ),
                 List.of(
-                        MethodDefinition.standard("requestDocking", MethodDefinition.MethodType.CONTROL, MethodDefinition.SafetyTier.OPERATIONAL, "Docks machine to charge")
+                        MethodDefinition.standard("requestDocking", "Docks machine to charge")
                 ),
                 null,
                 null
@@ -43,7 +43,7 @@ class ResourceShapeTest {
                 "Signal strength and IP",
                 Map.of("rssiSignalDbm", -45),
                 List.of(PropertyDefinition.integerProp("rssiSignalDbm", false, -50, "dBm")),
-                List.of(MethodDefinition.standard("pingDiagnostics", MethodDefinition.MethodType.DIAGNOSTIC, MethodDefinition.SafetyTier.READ_ONLY, "Pings network")),
+                List.of(MethodDefinition.standard("pingDiagnostics", "Pings network")),
                 null,
                 null
         );
@@ -63,7 +63,7 @@ class ResourceShapeTest {
                 "",
                 Map.of("maxSpeed", 2.5),
                 List.of(PropertyDefinition.doubleProp("maxSpeed", true, 2.0, "m/s")),
-                List.of(MethodDefinition.standard("navigateTo", MethodDefinition.MethodType.EXECUTION, MethodDefinition.SafetyTier.OPERATIONAL, "Navigates to coordinate")),
+                List.of(MethodDefinition.standard("navigateTo", "Navigates to coordinate")),
                 List.of(),
                 List.of(batteryShape, telemetryShape),
                 true,

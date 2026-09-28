@@ -3,7 +3,7 @@ import { WorkflowNodeType } from '../../services/workflowService';
 export interface PaletteItem {
   type: WorkflowNodeType;
   label: string;
-  category: 'TRIGGER' | 'LOGIC' | 'INTEGRATION' | 'GATE' | 'STATE' | 'MATH' | 'TERMINAL';
+  category: 'TRIGGER' | 'LOGIC' | 'INTEGRATION' | 'GATE' | 'STATE' | 'MATH' | 'TERMINAL' | 'EQUIPMENT' | 'COMPOSED';
   description: string;
   defaultConfig: Record<string, unknown>;
   iconName: string;
@@ -47,6 +47,24 @@ export const NODE_TYPE_METADATA: Record<WorkflowNodeType, {
     glow: 'rgba(59, 130, 246, 0.35)',
     icon: 'Network',
     tag: 'API MAPPER'
+  },
+  RESOURCE_ACTION: {
+    color: '#10b981', // Emerald
+    bgLight: 'rgba(16, 185, 129, 0.12)',
+    bgDark: 'rgba(16, 185, 129, 0.15)',
+    borderDark: 'rgba(16, 185, 129, 0.45)',
+    glow: 'rgba(16, 185, 129, 0.35)',
+    icon: 'Cpu',
+    tag: 'RESOURCE ACTION'
+  },
+  COMPOSED: {
+    color: '#8b5cf6', // Violet
+    bgLight: 'rgba(139, 92, 246, 0.12)',
+    bgDark: 'rgba(139, 92, 246, 0.15)',
+    borderDark: 'rgba(139, 92, 246, 0.45)',
+    glow: 'rgba(139, 92, 246, 0.35)',
+    icon: 'Boxes',
+    tag: 'COMPOSED'
   },
   ASYNC_GATE: {
     color: '#f59e0b', // Amber
@@ -292,6 +310,36 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     badgeColor: '#ef4444',
     accentBorder: '#dc2626',
     glowColor: 'rgba(239, 68, 68, 0.4)'
+  },
+  {
+    type: 'RESOURCE_ACTION',
+    label: 'Resource Action',
+    category: 'EQUIPMENT',
+    description: 'Invoke an inherited or custom method on an industrial resource or API gateway',
+    defaultConfig: {
+      resourceCode: '',
+      methodName: '',
+      parameters: {},
+      timeoutMs: 5000
+    },
+    iconName: 'Cpu',
+    badgeColor: '#10b981',
+    accentBorder: '#059669',
+    glowColor: 'rgba(16, 185, 129, 0.4)'
+  },
+  {
+    type: 'COMPOSED',
+    label: 'Composed Step',
+    category: 'COMPOSED',
+    description: 'Reusable composite or user-defined step from template library',
+    defaultConfig: {
+      templateCode: '',
+      parameters: {}
+    },
+    iconName: 'Boxes',
+    badgeColor: '#8b5cf6',
+    accentBorder: '#7c3aed',
+    glowColor: 'rgba(139, 92, 246, 0.4)'
   }
 ];
 

@@ -5,8 +5,6 @@ import com.company.warehouse.wes.business.resource.composer.model.EntityBasicInf
 import com.company.warehouse.wes.business.resource.composer.model.PropertyBaseType;
 import com.company.warehouse.wes.business.resource.composer.model.PropertyDefinition;
 import com.company.warehouse.wes.business.resource.composer.model.ServiceDefinition;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceSafetyTier;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceType;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -14,10 +12,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.stereotype.Component;
+
 /**
  * Concrete entity archetype for Generic HTTP/REST software interfaces.
- * Decoupled from Spring auto-discovery to preserve a clean-slate platform.
+ * Automatically discovered by EntityArchetypeRegistry.
  */
+@Component
 public class RestSoftwareEntityArchetype implements EntityArchetype {
 
     public static final String ARCHETYPE_CODE = "REST_API_GENERIC";
@@ -165,40 +166,36 @@ public class RestSoftwareEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("AUTHENTICATE")
-                .type(ServiceType.AUTHENTICATION)
-                .safetyTier(ServiceSafetyTier.READ_ONLY)
+                .displayName("Authenticate & Fetch Token")
+                .category("API")
                 .description("Acquires and validates access credentials or tokens from the target server.")
-                .supportedStrategies(List.of("OAUTH2_TOKEN_ENDPOINT", "API_KEY_HEADER", "BASIC_AUTH_HEADER", "NONE"))
                 .httpMethod("POST")
                 .pathTemplate("/oauth/token")
                 .build());
 
         services.add(ServiceDefinition.builder()
                 .name("HEALTH_CHECK")
-                .type(ServiceType.DIAGNOSTIC)
-                .safetyTier(ServiceSafetyTier.READ_ONLY)
+                .displayName("Health Probe")
+                .category("API")
                 .description("Tests connectivity and responsiveness of target software endpoint.")
-                .supportedStrategies(List.of("PING_ENDPOINT"))
                 .httpMethod("GET")
                 .pathTemplate("/actuator/health")
                 .build());
 
         services.add(ServiceDefinition.builder()
                 .name("DISPATCH_API")
-                .type(ServiceType.EXECUTION)
-                .safetyTier(ServiceSafetyTier.OPERATIONAL)
+                .displayName("Dispatch API Request")
+                .category("API")
                 .description("Dispatches structured payload to a specific API path with dynamic parameter bindings.")
-                .supportedStrategies(List.of("HTTP_REQUEST"))
                 .httpMethod("POST")
                 .pathTemplate("/api/v1/dispatch")
                 .build());
 
         services.add(ServiceDefinition.builder()
                 .name("QUERY_DATA")
-                .type(ServiceType.QUERY)
-                .safetyTier(ServiceSafetyTier.READ_ONLY)
+                .displayName("Query Remote Data")
+                .category("API")
                 .description("Queries remote system state or master data.")
-                .supportedStrategies(List.of("HTTP_GET"))
                 .httpMethod("GET")
                 .pathTemplate("/api/v1/query")
                 .build());

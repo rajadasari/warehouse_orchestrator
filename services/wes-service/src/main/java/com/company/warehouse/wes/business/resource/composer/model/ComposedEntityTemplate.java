@@ -9,6 +9,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -101,28 +102,14 @@ public class ComposedEntityTemplate implements Serializable {
 
         List<org.platform.resourcemanager.domain.template.MethodDefinition> domainMethods = new ArrayList<>();
         for (ServiceDefinition s : serviceDefinitions) {
-            org.platform.resourcemanager.domain.template.MethodDefinition.MethodType mType =
-                    org.platform.resourcemanager.domain.template.MethodDefinition.MethodType.EXECUTION;
-            if (s.getType() != null) {
-                try {
-                    mType = org.platform.resourcemanager.domain.template.MethodDefinition.MethodType.valueOf(s.getType().name());
-                } catch (Exception ignored) {}
-            }
-            org.platform.resourcemanager.domain.template.MethodDefinition.SafetyTier sTier =
-                    org.platform.resourcemanager.domain.template.MethodDefinition.SafetyTier.OPERATIONAL;
-            if (s.getSafetyTier() != null) {
-                try {
-                    sTier = org.platform.resourcemanager.domain.template.MethodDefinition.SafetyTier.valueOf(s.getSafetyTier().name());
-                } catch (Exception ignored) {}
-            }
             domainMethods.add(new org.platform.resourcemanager.domain.template.MethodDefinition(
                     s.getName() != null ? s.getName() : "service",
-                    mType,
-                    sTier,
+                    s.getDisplayName() != null ? s.getDisplayName() : (s.getName() != null ? s.getName() : "service"),
+                    s.getCategory() != null ? s.getCategory() : "GENERAL",
                     false,
                     s.getDescription() != null ? s.getDescription() : "",
                     List.of(),
-                    s.getSamplePayload() != null ? s.getSamplePayload() : Map.of()
+                    s.getOutputSchema() != null ? s.getOutputSchema() : Map.of()
             ));
         }
 
@@ -146,5 +133,65 @@ public class ComposedEntityTemplate implements Serializable {
                 java.time.Instant.now(),
                 java.time.Instant.now()
         );
+    }
+
+    public static ComposedEntityTemplate fromDomainTemplate(org.platform.resourcemanager.domain.template.ResourceTemplate domain) {
+        if (domain == null) return null;
+        EntityBasicInfo basic = EntityBasicInfo.builder()
+                .templateCode(domain.templateCode())
+                .templateName(domain.templateName())
+                .category(domain.category() != null ? domain.category().name() : "PHYSICAL")
+                .resourceType(domain.resourceType() != null ? domain.resourceType().code() : "EQUIPMENT")
+                .communicationProtocol(domain.communicationProtocol())
+                .description(domain.description())
+                .application(domain.application())
+                .defaultProtocol(domain.defaultProtocol())
+                .defaultHost(domain.defaultHost())
+                .defaultPort(domain.defaultPort())
+                .documentationUrl(domain.documentationUrl())
+                .active(domain.active())
+                .build();
+
+        List<PropertyDefinition> props = new ArrayList<>();
+        if (domain.customPropertiesSchema() != null) {
+            for (org.platform.resourcemanager.domain.template.PropertyDefinition dp : domain.customPropertiesSchema()) {
+                PropertyBaseType bType = PropertyBaseType.STRING;
+                try {
+                    if (dp.type() != null) bType = PropertyBaseType.valueOf(dp.type().name());
+                } catch (Exception ignored) {}
+                props.add(PropertyDefinition.builder()
+                        .name(dp.key())
+                        .label(dp.label())
+                        .baseType(bType)
+                        .required(dp.required())
+                        .defaultValue(dp.defaultValue())
+                        .unit(dp.unit())
+                        .options(dp.options())
+                        .description(dp.description())
+                        .build());
+            }
+        }
+
+        List<ServiceDefinition> services = new ArrayList<>();
+        List<org.platform.resourcemanager.domain.template.MethodDefinition> allMethods = new ArrayList<>();
+        if (domain.standardMethods() != null) allMethods.addAll(domain.standardMethods());
+        if (domain.customMethods() != null) allMethods.addAll(domain.customMethods());
+
+        for (org.platform.resourcemanager.domain.template.MethodDefinition dm : allMethods) {
+            services.add(ServiceDefinition.builder()
+                    .name(dm.name())
+                    .displayName(dm.displayName())
+                    .category(dm.category())
+                    .description(dm.description())
+                    .outputSchema(dm.outputSchema())
+                    .build());
+        }
+
+        return ComposedEntityTemplate.builder()
+                .basicInfo(basic)
+                .propertyDefinitions(props)
+                .serviceDefinitions(services)
+                .defaultProperties(domain.defaultProperties() != null ? new LinkedHashMap<>(domain.defaultProperties()) : new LinkedHashMap<>())
+                .build();
     }
 }

@@ -16,7 +16,8 @@ import {
   ChevronLeft,
   ChevronRight,
   FileCode,
-  Sliders
+  Sliders,
+  Radio
 } from 'lucide-react';
 
 interface SideNavBarProps {
@@ -123,6 +124,12 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
               isActive: (a) => a === 'resource-composer' || a === 'resource-manager' || a === 'resource-config'
             }
           ]
+        },
+        {
+          id: 'network',
+          label: 'Network & Devices',
+          icon: <Radio size={17} />,
+          isActive: (a) => a === 'network'
         },
         {
           id: 'api-mappings',

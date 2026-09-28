@@ -6,8 +6,6 @@ import com.company.warehouse.wes.business.resource.composer.model.EntityBasicInf
 import com.company.warehouse.wes.business.resource.composer.model.PropertyBaseType;
 import com.company.warehouse.wes.business.resource.composer.model.PropertyDefinition;
 import com.company.warehouse.wes.business.resource.composer.model.ServiceDefinition;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceSafetyTier;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceType;
 import com.company.warehouse.wes.business.resource.composer.validation.EntityTemplateValidator;
 import com.company.warehouse.wes.business.resource.composer.validation.EntityValidationResult;
 
@@ -116,11 +114,20 @@ public class EntityTemplateComposer {
         return this;
     }
 
-    public EntityTemplateComposer addService(String name, ServiceType type, ServiceSafetyTier tier, String pathTemplate, String httpMethod) {
+    public EntityTemplateComposer addService(String name, String pathTemplate, String httpMethod) {
         ServiceDefinition s = ServiceDefinition.builder()
                 .name(name)
-                .type(type)
-                .safetyTier(tier)
+                .pathTemplate(pathTemplate)
+                .httpMethod(httpMethod)
+                .build();
+        return addService(s);
+    }
+
+    public EntityTemplateComposer addService(String name, String displayName, String category, String pathTemplate, String httpMethod) {
+        ServiceDefinition s = ServiceDefinition.builder()
+                .name(name)
+                .displayName(displayName)
+                .category(category)
                 .pathTemplate(pathTemplate)
                 .httpMethod(httpMethod)
                 .build();
@@ -142,8 +149,8 @@ public class EntityTemplateComposer {
     public EntityTemplateComposer addCustomService(String name, String pathTemplate, String httpMethod, String description) {
         ServiceDefinition custom = ServiceDefinition.builder()
                 .name(name)
-                .type(ServiceType.EXECUTION)
-                .safetyTier(ServiceSafetyTier.OPERATIONAL)
+                .displayName(name)
+                .category("Custom")
                 .pathTemplate(pathTemplate)
                 .httpMethod(httpMethod)
                 .description(description)

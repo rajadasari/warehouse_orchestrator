@@ -26,6 +26,7 @@ public class ResourceBuilder {
     private long version = 1L;
     private Instant createdAt = Instant.now();
     private Instant lastModifiedAt;
+    private String templateCode;
 
     public static ResourceBuilder create() {
         return new ResourceBuilder();
@@ -56,6 +57,11 @@ public class ResourceBuilder {
 
     public ResourceBuilder category(ResourceCategory category) {
         this.category = category;
+        return this;
+    }
+
+    public ResourceBuilder templateCode(String templateCode) {
+        this.templateCode = templateCode;
         return this;
     }
 
@@ -147,7 +153,8 @@ public class ResourceBuilder {
                 properties,
                 version,
                 createdAt,
-                lastModifiedAt != null ? lastModifiedAt : createdAt
+                lastModifiedAt != null ? lastModifiedAt : createdAt,
+                templateCode
         );
     }
 }

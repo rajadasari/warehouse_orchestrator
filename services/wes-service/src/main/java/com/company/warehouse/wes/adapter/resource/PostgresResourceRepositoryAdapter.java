@@ -40,6 +40,7 @@ public class PostgresResourceRepositoryAdapter implements ResourceRepositoryPort
 
     private final ResourceRepository resourceRepository;
     private final ObjectMapper objectMapper;
+    private final com.company.warehouse.wes.business.resource.composer.engine.EntityMethodResolutionEngine methodResolutionEngine;
 
     @Override
     @Transactional
@@ -56,6 +57,9 @@ public class PostgresResourceRepositoryAdapter implements ResourceRepositoryPort
         entity.setType(resource.getResourceClass().code());
         entity.setStatus(resource.getStatus().name());
         entity.setCategory(resource.getCategory().name());
+        if (resource.getTemplateCode() != null && !resource.getTemplateCode().isBlank()) {
+            entity.setTemplateCode(resource.getTemplateCode().trim().toUpperCase());
+        }
 
         Map<String, Object> propsMap = new HashMap<>();
         resource.getProperties().forEach((k, v) -> propsMap.put(k, v.value()));
@@ -175,6 +179,11 @@ public class PostgresResourceRepositoryAdapter implements ResourceRepositoryPort
             };
         }
 
+        Set<String> capabilities = methodResolutionEngine.resolveCapabilitiesFromJson(entity.getTemplateCode(), entity.getMethodsConfig());
+        if (entity.getTemplateCode() != null && !entity.getTemplateCode().isBlank()) {
+            dynamicProps.put("templateCode", DynamicProperty.of("templateCode", entity.getTemplateCode()));
+        }
+
         return new Resource(
                 ResourceId.of(entity.getResourceId()),
                 entity.getName(),
@@ -184,11 +193,12 @@ public class PostgresResourceRepositoryAdapter implements ResourceRepositoryPort
                 state,
                 path,
                 coordinate,
-                Set.of(),
+                capabilities,
                 dynamicProps,
                 entity.getVersion(),
                 entity.getCreatedAt() != null ? entity.getCreatedAt() : Instant.now(),
-                entity.getUpdatedAt() != null ? entity.getUpdatedAt() : Instant.now()
+                entity.getUpdatedAt() != null ? entity.getUpdatedAt() : Instant.now(),
+                entity.getTemplateCode()
         );
     }
 

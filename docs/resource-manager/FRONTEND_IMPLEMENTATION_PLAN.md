@@ -1,12 +1,16 @@
+
 # Frontend Implementation Plan: Resource Manager UI Redesign
 
 ## 1. Overview & Architectural Goals
+
 Upgrade the **Warehouse Orchestrator UI (`client/warehouse-ui`)** to fully expose and visualize the three new core capabilities of the Resource Manager:
+
 1. **Resource Shapes (Mixins)**: Multi-shape composition tab for reusable property & method bundles.
 2. **Rule Subscriptions (Edge Trigger Engine)**: Reactive rules matrix with Regex barcode matching, numeric thresholds, and automated actions.
 3. **High-Speed Telemetry Historian & Policies**: Live oscilloscope/ring-buffer chart, 6 collection strategies (`ON_CHANGE`, `PERIODIC_POLL`, `DEADBAND_ABSOLUTE`, `DEADBAND_PERCENT`, `SAMPLE_WINDOW`, `HYBRID_HEARTBEAT`), and downsampled metric views.
 
 Strict adherence to **IEC 62443 Industrial HMI Standards**:
+
 * Zero CDN / air-gapped SVGs (`lucide-react`).
 * 48px x 48px touch targets for touchscreens.
 * Industrial contrast color palette (Emerald running, Amber warning/in-motion, Crimson fault/abort, Slate offline).
@@ -15,7 +19,9 @@ Strict adherence to **IEC 62443 Industrial HMI Standards**:
 ---
 
 ## 2. Updated Workspace Navigation Modes
+
 The unified top navigation bar in `ResourceConfigView.tsx` will be expanded into 5 dedicated industrial workspace modes:
+
 * `RESOURCES`: Active equipment twin table & direct controls.
 * `TEMPLATES`: Archetype blueprints with applied shape composition chips.
 * `SHAPES`: **(NEW)** Composable mixin library (`ResourceShape`) management.
@@ -45,6 +51,7 @@ client/warehouse-ui/src/features/resources/
 ## 4. Visual Layout Mockups (Sample Views)
 
 ### 4.1 Resource Shapes Workspace (`SHAPES`)
+
 ```
 +-------------------------------------------------------------------------------------------------------+
 |  Resource Shapes Library (Mixins)                         [+ New Shape] [Refresh]                     |
@@ -62,6 +69,7 @@ client/warehouse-ui/src/features/resources/
 ```
 
 ### 4.2 Reactive Rules Matrix (`RULES`)
+
 ```
 +-------------------------------------------------------------------------------------------------------+
 |  Reactive Rule Subscriptions                              [+ Add Subscription] [Test Regex Trap]      |
@@ -77,6 +85,7 @@ client/warehouse-ui/src/features/resources/
 ```
 
 ### 4.3 Live Telemetry & Ring Buffer Oscilloscope (`TELEMETRY`)
+
 ```
 +-------------------------------------------------------------------------------------------------------+
 |  Live Telemetry Historian & Oscilloscope                  [Select Resource: ASRS_CRANE_01 ▾]          |

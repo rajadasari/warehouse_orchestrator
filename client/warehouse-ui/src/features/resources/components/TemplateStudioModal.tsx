@@ -55,9 +55,9 @@ const DEFAULT_BASE_PROPERTIES: PropertySchemaItem[] = [
 ];
 
 const DEFAULT_BASE_METHODS: MethodDefinition[] = [
-  { name: 'PING_HEALTH', type: 'DIAGNOSTIC', safetyTier: 'READ_ONLY', description: 'Latency and heartbeat verification before dispatching work orders' },
-  { name: 'RESET_FAULT', type: 'CONTROL', safetyTier: 'OPERATIONAL', description: 'Clears latched machine error states once physically resolved' },
-  { name: 'EMERGENCY_STOP', type: 'CONTROL', safetyTier: 'SAFETY_CRITICAL', description: 'Universal shop-floor safety stop (IEC 62443 dual-approval guarded)' }
+  { name: 'PING_HEALTH', displayName: 'Ping Health', category: 'DIAGNOSTIC', description: 'Latency and heartbeat verification before dispatching work orders' },
+  { name: 'RESET_FAULT', displayName: 'Reset Fault', category: 'CONTROL', description: 'Clears latched machine error states once physically resolved' },
+  { name: 'EMERGENCY_STOP', displayName: 'Emergency Stop', category: 'CONTROL', description: 'Universal shop-floor safety stop' }
 ];
 
 export const TemplateStudioModal: React.FC<TemplateStudioModalProps> = ({
@@ -192,8 +192,8 @@ export const TemplateStudioModal: React.FC<TemplateStudioModalProps> = ({
       ...customMethods,
       {
         name: `customMethod${customMethods.length + 1}`,
-        type: 'CONTROL',
-        safetyTier: 'OPERATIONAL',
+        displayName: `Custom Method ${customMethods.length + 1}`,
+        category: 'CUSTOM',
         description: 'Custom execution service'
       }
     ]);

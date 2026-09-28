@@ -240,8 +240,8 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
       ...methods,
       {
         name: `method_${methods.length + 1}`,
-        type: 'CONTROL',
-        safetyTier: 'OPERATIONAL',
+        displayName: `Method ${methods.length + 1}`,
+        category: 'CUSTOM',
         description: 'Operation execution service'
       }
     ]);

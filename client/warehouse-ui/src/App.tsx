@@ -9,6 +9,7 @@ import { WmsFormsView } from './features/wms/WmsFormsView';
 import { ApiMappingManagerView } from './features/mappings/ApiMappingManagerView';
 import { WorkflowComposerView } from './features/workflows/WorkflowComposerView';
 import { DatabaseSettingsView } from './features/configuration/DatabaseSettingsView';
+import { NetworkGatewayView } from './features/network/NetworkGatewayView';
 
 interface AuthSession {
   isLoggedIn: boolean;
@@ -30,6 +31,7 @@ export type NavItemId =
   | 'database-config' 
   | 'inventory' 
   | 'custom-fields' 
+  | 'network'
   | 'wms-forms';
 
 export const App: React.FC = () => {
@@ -122,6 +124,7 @@ export const App: React.FC = () => {
         {(activeNav === 'resource-manager' || activeNav === 'resource-config') && <ResourceConfigView initialViewMode="RESOURCES" />}
         {activeNav === 'api-mappings' && <ApiMappingManagerView />}
         {activeNav === 'workflows' && <WorkflowComposerView />}
+        {activeNav === 'network' && <NetworkGatewayView />}
         {activeNav === 'database-config' && <DatabaseSettingsView />}
         {activeNav === 'users' && <UserManagementView />}
         {(activeNav === 'inventory' || activeNav === 'custom-fields') && <PalletInventoryView />}

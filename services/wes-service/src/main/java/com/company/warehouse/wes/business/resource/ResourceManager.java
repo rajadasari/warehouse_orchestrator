@@ -48,6 +48,7 @@ public class ResourceManager implements ResourceConfigProvider {
     private final ResourceRelationshipRepository relationshipRepository;
     private final ObjectMapper objectMapper;
     private final EntityPropertyResolutionEngine propertyResolutionEngine;
+    private final com.company.warehouse.wes.business.resource.composer.engine.EntityMethodResolutionEngine methodResolutionEngine;
     private final EntityArchetypeRegistry archetypeRegistry;
     private final EntityTemplateValidator templateValidator;
     private final EntityComposerMapper composerMapper;
@@ -129,6 +130,7 @@ public class ResourceManager implements ResourceConfigProvider {
 
         // Register with common-resource micro-kernel
         try {
+            java.util.Set<String> capabilities = methodResolutionEngine.resolveCapabilities(saved.getTemplateCode(), methodsConfig);
             resourceClient.register(new org.platform.resourcemanager.api.dto.CreateResourceRequest(
                     "default",
                     saved.getResourceId(),
@@ -137,7 +139,7 @@ public class ResourceManager implements ResourceConfigProvider {
                     saved.getCategory(),
                     "",
                     0.0, 0.0, 0.0,
-                    java.util.Set.of(),
+                    capabilities,
                     customProps
             ));
         } catch (Exception e) {
@@ -670,23 +672,9 @@ public class ResourceManager implements ResourceConfigProvider {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> resolveEffectiveMethods(ResourceEntity resource) {
-        List<Map<String, Object>> methods = new java.util.ArrayList<>();
-        if (resource.getTemplateCode() != null && !resource.getTemplateCode().trim().isEmpty()) {
-            String tCode = resource.getTemplateCode().trim().toUpperCase();
-            templateRepository.findByTemplateCode(tCode)
-                    .ifPresentOrElse(
-                            tpl -> methods.addAll(deserializeList(tpl.getMethodsSchema())),
-                            () -> archetypeRegistry.getTemplate(tCode).ifPresent(arch -> {
-                                ResourceTemplateDto dto = composerMapper.toDto(arch);
-                                if (dto.getMethodsSchema() != null) {
-                                    for (Object m : dto.getMethodsSchema()) {
-                                        methods.add(objectMapper.convertValue(m, new TypeReference<Map<String, Object>>() {}));
-                                    }
-                                }
-                            })
-                    );
-        }
-        return methods;
+        Map<String, Object> methodsConfig = deserializeProperties(resource.getMethodsConfig());
+        Map<String, Map<String, Object>> resolved = methodResolutionEngine.resolveMethods(resource.getTemplateCode(), methodsConfig);
+        return new java.util.ArrayList<>(resolved.values());
     }
 
     private ResourceTemplateDto toTemplateDto(ResourceTemplateEntity entity) {

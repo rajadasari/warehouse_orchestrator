@@ -12,6 +12,7 @@ import { NODE_TYPE_METADATA } from '../types';
 import { dynamicMappingService, ApiIntegrationMappingItem } from '../../../services/dynamicMappingService';
 import { TriggerConfigInspector } from './inspectors/TriggerConfigInspector';
 import { ApiMapperConfigInspector } from './inspectors/ApiMapperConfigInspector';
+import { ResourceActionConfigInspector } from './inspectors/ResourceActionConfigInspector';
 import { ContextVariableItem } from './inspectors/ContextVariableChips';
 
 interface NodeInspectorPanelProps {
@@ -451,6 +452,20 @@ export const NodeInspectorPanel: React.FC<NodeInspectorPanelProps> = ({
                 selectedNode={selectedNode}
                 onUpdateConfigField={handleConfigFieldChange}
                 availableMappings={availableMappings}
+                availableVariables={availableVariables}
+              />
+            )}
+
+            {selectedNode.type === 'RESOURCE_ACTION' && (
+              <ResourceActionConfigInspector
+                node={selectedNode}
+                onUpdateConfig={(newConfig) => {
+                  onUpdateNode({
+                    ...selectedNode,
+                    config: newConfig
+                  });
+                  setRawJsonText(JSON.stringify(newConfig, null, 2));
+                }}
                 availableVariables={availableVariables}
               />
             )}

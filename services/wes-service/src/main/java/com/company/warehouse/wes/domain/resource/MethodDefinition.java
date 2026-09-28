@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
 @Data
@@ -15,10 +15,12 @@ import java.util.Map;
 @AllArgsConstructor
 public class MethodDefinition implements Serializable {
     private String name;
-    private String type; // AUTHENTICATION, DIAGNOSTIC, EXECUTION
+    private String displayName;
+    @Builder.Default
+    private String category = "GENERAL";
     private String description;
-    private List<String> supportedStrategies;
-    private String safetyTier; // READ_ONLY, OPERATIONAL, SAFETY_CRITICAL
-    private Map<String, Object> parametersSchema;
-    private Map<String, Object> samplePayload;
+    @Builder.Default
+    private Map<String, Object> parametersSchema = new HashMap<>();
+    @Builder.Default
+    private Map<String, Object> outputSchema = new HashMap<>();
 }

@@ -6,13 +6,11 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
- * Invokable service or method definition schema within an Entity Blueprint.
+ * Invokable snippet/method definition schema within an Entity Blueprint.
  */
 @Data
 @Builder
@@ -22,16 +20,12 @@ public class ServiceDefinition implements Serializable {
 
     private String name;
 
-    @Builder.Default
-    private ServiceType type = ServiceType.EXECUTION;
+    private String displayName;
 
     @Builder.Default
-    private ServiceSafetyTier safetyTier = ServiceSafetyTier.OPERATIONAL;
+    private String category = "GENERAL";
 
     private String description;
-
-    @Builder.Default
-    private List<String> supportedStrategies = new ArrayList<>();
 
     private String pathTemplate;
 
@@ -42,7 +36,7 @@ public class ServiceDefinition implements Serializable {
     private Map<String, Object> parametersSchema = new HashMap<>();
 
     @Builder.Default
-    private Map<String, Object> samplePayload = new HashMap<>();
+    private Map<String, Object> outputSchema = new HashMap<>();
 
     @Builder.Default
     private Map<String, String> defaultHeaders = new HashMap<>();

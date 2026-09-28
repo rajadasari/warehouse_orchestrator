@@ -116,7 +116,8 @@ public record ResourceTemplate(
         ResourceBuilder builder = ResourceBuilder.create(id)
                 .name(finalName)
                 .category(category)
-                .resourceClass(resourceType);
+                .resourceClass(resourceType)
+                .templateCode(templateCode);
 
         // 3. Compose capabilities/methods from applied shapes
         for (org.platform.resourcemanager.domain.shape.ResourceShape shape : appliedShapes) {

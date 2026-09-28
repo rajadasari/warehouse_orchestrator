@@ -15,6 +15,8 @@ public interface ResourceTemplateRepository extends JpaRepository<ResourceTempla
 
     boolean existsByTemplateCode(String templateCode);
 
+    void deleteByTemplateCode(String templateCode);
+
     List<ResourceTemplateEntity> findByCategoryIgnoreCase(String category);
 
     List<ResourceTemplateEntity> findByResourceTypeIgnoreCase(String resourceType);

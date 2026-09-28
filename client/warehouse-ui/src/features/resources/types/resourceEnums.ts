@@ -32,12 +32,16 @@ export type ResourceStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
 
 export interface MethodDefinition {
   name: string;
-  type: 'AUTHENTICATION' | 'DIAGNOSTIC' | 'EXECUTION' | string;
+  displayName?: string;
+  category?: string;
   description?: string;
-  supportedStrategies?: string[];
-  safetyTier?: 'READ_ONLY' | 'OPERATIONAL' | 'SAFETY_CRITICAL';
+  snippetCode?: string;
   parametersSchema?: Record<string, unknown>;
-  samplePayload?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  pathTemplate?: string;
+  httpMethod?: string;
+  type?: string;
+  safetyTier?: string;
 }
 
 export interface MethodExecutionResult {

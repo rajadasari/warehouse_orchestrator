@@ -46,6 +46,7 @@ public class WesResourceEngineConfiguration {
     @Primary
     public ResourceClient resourceClient(
             ResourceRepositoryPort repositoryPort,
+            org.platform.resourcemanager.application.port.ResourceTemplateRepositoryPort templateRepositoryPort,
             EventPublisherPort eventPublisherPort,
             OperationalGraph operationalGraph,
             StateTransitionEngine stateTransitionEngine,
@@ -72,12 +73,21 @@ public class WesResourceEngineConfiguration {
                 operationalGraph
         );
 
+        org.platform.resourcemanager.application.service.ResourceTemplateService templateService =
+                new org.platform.resourcemanager.application.service.ResourceTemplateService(
+                        templateRepositoryPort,
+                        repositoryPort,
+                        lifecycleService,
+                        auditLogger
+                );
+
         return new ResourceClient(
                 lifecycleService,
                 stateService,
                 topologyService,
                 arbitrationEngine,
-                matchmaker
+                matchmaker,
+                templateService
         );
     }
 }

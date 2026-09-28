@@ -17,7 +17,9 @@ import {
   ChevronUp,
   ArrowRight,
   ArrowLeft,
-  Sparkles
+  Sparkles,
+  Cpu,
+  Boxes
 } from 'lucide-react';
 import { WorkflowNode, WorkflowEdge } from '../../../../services/workflowService';
 import { NODE_TYPE_METADATA } from '../../types';
@@ -168,6 +170,33 @@ export function getNodeIo(node: WorkflowNode): { inputs: NodePropertyItem[]; out
       ];
       break;
 
+    case 'RESOURCE_ACTION': {
+      const params = typeof cfg.parameters === 'object' && cfg.parameters !== null ? cfg.parameters as Record<string, unknown> : {};
+      inputs = Object.keys(params).map(k => ({
+        name: k,
+        connectedFrom: typeof params[k] === 'string' ? String(params[k]) : undefined
+      }));
+      if (inputs.length === 0) {
+        inputs = [{ name: 'params', connectedFrom: cfg.methodName ? `${cfg.resourceCode}.${cfg.methodName}` : undefined }];
+      }
+      outputs = [
+        { name: 'success', type: 'boolean' },
+        { name: 'data', type: 'object' }
+      ];
+      break;
+    }
+
+    case 'COMPOSED': {
+      const params = typeof cfg.parameters === 'object' && cfg.parameters !== null ? cfg.parameters as Record<string, unknown> : {};
+      inputs = Object.keys(params).map(k => ({
+        name: k,
+        connectedFrom: typeof params[k] === 'string' ? String(params[k]) : undefined
+      }));
+      if (inputs.length === 0) inputs = [{ name: 'inPayload' }];
+      outputs = [{ name: 'outPayload', type: 'object' }];
+      break;
+    }
+
     default:
       inputs = [{ name: 'inputPayload' }];
       outputs = [{ name: 'outputPayload' }];
@@ -242,6 +271,8 @@ export const WorkflowNodeCard: React.FC<WorkflowNodeCardProps> = ({
       case 'MATH_OPERATION': return <Calculator size={16} />;
       case 'DECISION': return <GitBranch size={16} />;
       case 'TERMINATOR': return <Flag size={16} />;
+      case 'RESOURCE_ACTION': return <Cpu size={16} />;
+      case 'COMPOSED': return <Boxes size={16} />;
       default: return <PlayCircle size={16} />;
     }
   };

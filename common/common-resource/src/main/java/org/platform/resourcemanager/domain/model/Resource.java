@@ -32,6 +32,7 @@ public class Resource implements Serializable {
     private final AtomicLong version;
     private final Instant createdAt;
     private volatile Instant lastModifiedAt;
+    private volatile String templateCode;
 
     public Resource(
             ResourceId id,
@@ -47,6 +48,25 @@ public class Resource implements Serializable {
             long initialVersion,
             Instant createdAt,
             Instant lastModifiedAt
+    ) {
+        this(id, name, resourceClass, category, status, state, hierarchyPath, coordinate, capabilities, properties, initialVersion, createdAt, lastModifiedAt, null);
+    }
+
+    public Resource(
+            ResourceId id,
+            String name,
+            ResourceType resourceClass,
+            ResourceCategory category,
+            OperationalStatus status,
+            ResourceState state,
+            ISA95Path hierarchyPath,
+            SpatialCoordinate coordinate,
+            Set<String> capabilities,
+            Map<String, DynamicProperty> properties,
+            long initialVersion,
+            Instant createdAt,
+            Instant lastModifiedAt,
+            String templateCode
     ) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.name = (name == null || name.isBlank()) ? id.resourceId() : name.trim();
@@ -67,6 +87,15 @@ public class Resource implements Serializable {
         this.version = new AtomicLong(initialVersion);
         this.createdAt = (createdAt == null) ? Instant.now() : createdAt;
         this.lastModifiedAt = (lastModifiedAt == null) ? this.createdAt : lastModifiedAt;
+        this.templateCode = templateCode;
+    }
+
+    public String getTemplateCode() {
+        return templateCode;
+    }
+
+    public void setTemplateCode(String templateCode) {
+        this.templateCode = templateCode;
     }
 
     private void verifyAndAdvanceCas(long expectedVersion) {

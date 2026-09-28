@@ -62,7 +62,12 @@ public class ComposedEntityInstance implements Serializable {
                 org.platform.resourcemanager.domain.builder.ResourceBuilder.create(resId)
                         .name(name != null ? name : resId.resourceId())
                         .category(resCat)
-                        .resourceClass(org.platform.resourcemanager.domain.model.StandardResourceClass.EQUIPMENT);
+                        .resourceClass(org.platform.resourcemanager.domain.model.StandardResourceClass.EQUIPMENT)
+                        .templateCode(templateCode);
+
+        if (methodsConfig != null) {
+            methodsConfig.keySet().forEach(builder::addCapability);
+        }
 
         if (effectiveProperties != null) {
             effectiveProperties.forEach((k, v) -> {

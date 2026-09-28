@@ -23,7 +23,7 @@ const DEFAULT_SHAPES: ResourceShapeItem[] = [
       { key: 'isCharging', label: 'Charging State', type: 'BOOLEAN', required: true }
     ],
     methods: [
-      { name: 'requestDocking', type: 'CONTROL', safetyTier: 'OPERATIONAL', description: 'Triggers automated navigation to charging dock' }
+      { name: 'requestDocking', displayName: 'Request Docking', category: 'HARDWARE', description: 'Triggers automated navigation to charging dock' }
     ]
   },
   {
@@ -36,7 +36,7 @@ const DEFAULT_SHAPES: ResourceShapeItem[] = [
       { key: 'ipAddress', label: 'IP Address', type: 'STRING', required: true }
     ],
     methods: [
-      { name: 'pingDiagnostics', type: 'DIAGNOSTIC', safetyTier: 'READ_ONLY', description: 'Runs ICMP latency check' }
+      { name: 'pingDiagnostics', displayName: 'Ping Diagnostics', category: 'DIAGNOSTIC', description: 'Runs ICMP latency check' }
     ]
   },
   {
@@ -49,7 +49,7 @@ const DEFAULT_SHAPES: ResourceShapeItem[] = [
       { key: 'scanSuccess', label: 'Scan Successful', type: 'BOOLEAN', required: true }
     ],
     methods: [
-      { name: 'triggerLaserBeep', type: 'CONTROL', safetyTier: 'OPERATIONAL', description: 'Fires diagnostic audio tone' }
+      { name: 'triggerLaserBeep', displayName: 'Trigger Laser Beep', category: 'HARDWARE', description: 'Fires diagnostic audio tone' }
     ]
   }
 ];
@@ -317,17 +317,17 @@ export const ResourceShapesTab: React.FC = () => {
               <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #334155', textAlign: 'left', color: '#94a3b8' }}>
-                    <th style={{ padding: '6px' }}>Method Name</th>
-                    <th style={{ padding: '6px' }}>Type</th>
-                    <th style={{ padding: '6px' }}>Safety Tier</th>
+                    <th style={{ padding: '6px' }}>Method Identifier</th>
+                    <th style={{ padding: '6px' }}>Display Name</th>
+                    <th style={{ padding: '6px' }}>Category</th>
                   </tr>
                 </thead>
                 <tbody>
                   {selectedShape.methods.map(m => (
                     <tr key={m.name} style={{ borderBottom: '1px solid #1e293b' }}>
                       <td style={{ padding: '6px', fontFamily: 'monospace', color: '#93c5fd' }}>{m.name}()</td>
-                      <td style={{ padding: '6px' }}>{m.type}</td>
-                      <td style={{ padding: '6px', color: m.safetyTier === 'SAFETY_CRITICAL' ? '#ef4444' : '#10b981' }}>{m.safetyTier}</td>
+                      <td style={{ padding: '6px' }}>{m.displayName || m.name}</td>
+                      <td style={{ padding: '6px', color: '#38bdf8' }}>{m.category || 'GENERAL'}</td>
                     </tr>
                   ))}
                 </tbody>

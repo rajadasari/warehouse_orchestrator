@@ -5,8 +5,6 @@ import com.company.warehouse.wes.business.resource.composer.model.EntityBasicInf
 import com.company.warehouse.wes.business.resource.composer.model.PropertyBaseType;
 import com.company.warehouse.wes.business.resource.composer.model.PropertyDefinition;
 import com.company.warehouse.wes.business.resource.composer.model.ServiceDefinition;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceSafetyTier;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceType;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -224,8 +222,8 @@ public class OpcUaClientEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("DISCOVER_TAGS")
-                .type(ServiceType.DIAGNOSTIC)
-                .safetyTier(ServiceSafetyTier.READ_ONLY)
+                .displayName("Discover PLC Tags")
+                .category("HARDWARE")
                 .description("Browses PLC address space folders and returns tag hierarchy.")
                 .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/browse")
                 .httpMethod("POST")
@@ -233,8 +231,8 @@ public class OpcUaClientEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("READ_TAG")
-                .type(ServiceType.QUERY)
-                .safetyTier(ServiceSafetyTier.READ_ONLY)
+                .displayName("Read Single Tag")
+                .category("HARDWARE")
                 .description("Reads single tag value, StatusCode, and timestamps from the PLC.")
                 .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/read-single")
                 .httpMethod("POST")
@@ -242,8 +240,8 @@ public class OpcUaClientEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("WRITE_TAG")
-                .type(ServiceType.EXECUTION)
-                .safetyTier(ServiceSafetyTier.OPERATIONAL)
+                .displayName("Write Single Tag")
+                .category("HARDWARE")
                 .description("Writes typed setpoint or command value to a PLC tag.")
                 .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/write-single")
                 .httpMethod("POST")
@@ -251,8 +249,8 @@ public class OpcUaClientEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("READ_BATCH")
-                .type(ServiceType.QUERY)
-                .safetyTier(ServiceSafetyTier.READ_ONLY)
+                .displayName("Batch Read Tags")
+                .category("HARDWARE")
                 .description("Reads multiple tags in a single network round-trip.")
                 .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/read-batch")
                 .httpMethod("POST")
@@ -260,8 +258,8 @@ public class OpcUaClientEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("WRITE_BATCH")
-                .type(ServiceType.EXECUTION)
-                .safetyTier(ServiceSafetyTier.OPERATIONAL)
+                .displayName("Batch Write Tags")
+                .category("HARDWARE")
                 .description("Writes multiple tags simultaneously.")
                 .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/write-batch")
                 .httpMethod("POST")
@@ -269,8 +267,8 @@ public class OpcUaClientEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("SUBSCRIBE_TAG")
-                .type(ServiceType.QUERY)
-                .safetyTier(ServiceSafetyTier.OPERATIONAL)
+                .displayName("Subscribe Tag Telemetry")
+                .category("HARDWARE")
                 .description("Establishes 250ms event-driven push telemetry subscription.")
                 .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/read-group/{groupKey}")
                 .httpMethod("POST")
@@ -278,8 +276,8 @@ public class OpcUaClientEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("TEST_CONNECTION")
-                .type(ServiceType.DIAGNOSTIC)
-                .safetyTier(ServiceSafetyTier.READ_ONLY)
+                .displayName("Test Connection & Handshake")
+                .category("HARDWARE")
                 .description("Pings PLC endpoint, verifies TLS handshake, and reports latency.")
                 .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/browse")
                 .httpMethod("POST")

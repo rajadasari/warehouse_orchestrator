@@ -5,8 +5,6 @@ import com.company.warehouse.wes.business.resource.composer.model.EntityBasicInf
 import com.company.warehouse.wes.business.resource.composer.model.PropertyBaseType;
 import com.company.warehouse.wes.business.resource.composer.model.PropertyDefinition;
 import com.company.warehouse.wes.business.resource.composer.model.ServiceDefinition;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceSafetyTier;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceType;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -166,8 +164,8 @@ public class OpcUaServerEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("START_SERVER")
-                .type(ServiceType.EXECUTION)
-                .safetyTier(ServiceSafetyTier.OPERATIONAL)
+                .displayName("Start Server")
+                .category("SERVER")
                 .description("Binds the listening socket and begins serving address space in WCS.")
                 .pathTemplate("/api/v1/wcs/opcua/config/servers")
                 .httpMethod("POST")
@@ -175,8 +173,8 @@ public class OpcUaServerEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("STOP_SERVER")
-                .type(ServiceType.EXECUTION)
-                .safetyTier(ServiceSafetyTier.SAFETY_CRITICAL)
+                .displayName("Stop Server")
+                .category("SERVER")
                 .description("Terminates client connections and shuts down listening socket.")
                 .pathTemplate("/api/v1/wcs/opcua/config/servers")
                 .httpMethod("DELETE")
@@ -184,8 +182,8 @@ public class OpcUaServerEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("REGISTER_NODE")
-                .type(ServiceType.EXECUTION)
-                .safetyTier(ServiceSafetyTier.OPERATIONAL)
+                .displayName("Register Node")
+                .category("SERVER")
                 .description("Dynamically registers a variable node into the virtual address space.")
                 .pathTemplate("/api/v1/wcs/opcua/config/tag-mappings")
                 .httpMethod("POST")
@@ -193,8 +191,8 @@ public class OpcUaServerEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("UPDATE_NODE_VALUE")
-                .type(ServiceType.EXECUTION)
-                .safetyTier(ServiceSafetyTier.OPERATIONAL)
+                .displayName("Update Node Value")
+                .category("SERVER")
                 .description("Sets a variable node value and pushes notification to subscribers.")
                 .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/write-single")
                 .httpMethod("POST")
@@ -202,8 +200,8 @@ public class OpcUaServerEntityArchetype implements EntityArchetype {
 
         services.add(ServiceDefinition.builder()
                 .name("GET_SERVER_STATUS")
-                .type(ServiceType.DIAGNOSTIC)
-                .safetyTier(ServiceSafetyTier.READ_ONLY)
+                .displayName("Get Server Status")
+                .category("SERVER")
                 .description("Reports active client count, uptime, and bound endpoint.")
                 .pathTemplate("/api/v1/wcs/opcua/config/servers")
                 .httpMethod("GET")

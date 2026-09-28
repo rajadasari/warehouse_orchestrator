@@ -47,6 +47,32 @@ public class ResourceTemplateController {
         return ResponseEntity.ok(list);
     }
 
+    @PostMapping("/from-archetype/{archetypeCode}")
+    public ResponseEntity<ResourceTemplateDto> createTemplateFromArchetype(
+            @PathVariable String archetypeCode,
+            @RequestParam String newTemplateCode,
+            @RequestParam(required = false) String newTemplateName,
+            @RequestParam(required = false) String description) {
+        log.info("POST /api/v1/wes/resource-templates/from-archetype/{}: Creating template '{}'",
+                archetypeCode, newTemplateCode);
+        var archetype = archetypeRegistry.getArchetype(archetypeCode)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Archetype not found: " + archetypeCode));
+
+        ComposedEntityTemplate template = archetype.toTemplate();
+        ResourceTemplateDto dto = composerMapper.toDto(template);
+        dto.setId(null);
+        dto.setTemplateCode(newTemplateCode.trim().toUpperCase());
+        dto.setTemplateName(newTemplateName != null && !newTemplateName.isBlank() ? newTemplateName : newTemplateCode);
+        if (description != null && !description.isBlank()) {
+            dto.setDescription(description);
+        }
+        dto.setSystemTemplate(false);
+
+        ResourceTemplateDto created = resourceManager.createTemplate(dto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
     @PostMapping("/validate")
     public ResponseEntity<EntityValidationResult> validateTemplate(@RequestBody ResourceTemplateDto dto) {
         log.debug("POST /api/v1/wes/resource-templates/validate: code='{}'", dto.getTemplateCode());

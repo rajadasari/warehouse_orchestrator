@@ -4,8 +4,6 @@ import com.company.warehouse.wes.business.resource.composer.archetype.RestSoftwa
 import com.company.warehouse.wes.business.resource.composer.model.ComposedEntityTemplate;
 import com.company.warehouse.wes.business.resource.composer.model.PropertyBaseType;
 import com.company.warehouse.wes.business.resource.composer.model.PropertyDefinition;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceSafetyTier;
-import com.company.warehouse.wes.business.resource.composer.model.ServiceType;
 import com.company.warehouse.wes.business.resource.composer.validation.EntityTemplateValidator;
 import com.company.warehouse.wes.business.resource.composer.validation.EntityValidationResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +35,7 @@ class EntityTemplateComposerTest {
                         .description("Authentication key for ERP gateway")
                         .build())
                 .addProperty("retryCount", "Max Retries", PropertyBaseType.NUMBER, false, 3)
-                .addService("SYNC_ORDERS", ServiceType.EXECUTION, ServiceSafetyTier.OPERATIONAL, "/api/v1/orders/sync", "POST")
+                .addService("SYNC_ORDERS", "/api/v1/orders/sync", "POST")
                 .addCustomProperty("erpPlantCode", PropertyBaseType.STRING, "PLANT_01", "SAP Plant Identifier")
                 .addCustomService("QUERY_STOCK", "/api/v1/stock/query", "GET", "Queries live plant inventory")
                 .addSupportedCommand("SYNC");

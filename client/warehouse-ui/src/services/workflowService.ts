@@ -6,7 +6,29 @@ export type WorkflowNodeType =
   | 'STATE_MUTATION' 
   | 'MATH_OPERATION'
   | 'DECISION' 
-  | 'TERMINATOR';
+  | 'TERMINATOR'
+  | 'RESOURCE_ACTION'
+  | 'COMPOSED';
+
+export interface WorkflowNodeTemplate {
+  id?: string;
+  templateCode: string;
+  name: string;
+  description?: string;
+  nodeType: string;
+  category: string;
+  icon: string;
+  color: string;
+  isSystem?: boolean;
+  resourceCode?: string;
+  targetMethod?: string;
+  configuration: Record<string, unknown>;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface WorkflowNode {
   id: string;
@@ -156,5 +178,48 @@ export const workflowService = {
   getInstanceLogs: async (instanceId: string): Promise<WorkflowExecutionLogItem[]> => {
     const res = await fetch(`${BASE_URL}/instances/${encodeURIComponent(instanceId)}/logs`);
     return handleResponse<WorkflowExecutionLogItem[]>(res);
+  },
+
+  // =========================================================================
+  // NODE TEMPLATES (COMPOSED & SYSTEM NODES)
+  // =========================================================================
+
+  getAllNodeTemplates: async (category?: string, nodeType?: string): Promise<WorkflowNodeTemplate[]> => {
+    const params = new URLSearchParams();
+    if (category) params.append('category', category);
+    if (nodeType) params.append('nodeType', nodeType);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`/api/v1/wes/workflow-node-templates${query}`);
+    return handleResponse<WorkflowNodeTemplate[]>(res);
+  },
+
+  getNodeTemplateByCode: async (templateCode: string): Promise<WorkflowNodeTemplate> => {
+    const res = await fetch(`/api/v1/wes/workflow-node-templates/${encodeURIComponent(templateCode)}`);
+    return handleResponse<WorkflowNodeTemplate>(res);
+  },
+
+  createNodeTemplate: async (tpl: Partial<WorkflowNodeTemplate>): Promise<WorkflowNodeTemplate> => {
+    const res = await fetch('/api/v1/wes/workflow-node-templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tpl)
+    });
+    return handleResponse<WorkflowNodeTemplate>(res);
+  },
+
+  updateNodeTemplate: async (templateCode: string, tpl: Partial<WorkflowNodeTemplate>): Promise<WorkflowNodeTemplate> => {
+    const res = await fetch(`/api/v1/wes/workflow-node-templates/${encodeURIComponent(templateCode)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tpl)
+    });
+    return handleResponse<WorkflowNodeTemplate>(res);
+  },
+
+  deleteNodeTemplate: async (templateCode: string): Promise<void> => {
+    const res = await fetch(`/api/v1/wes/workflow-node-templates/${encodeURIComponent(templateCode)}`, {
+      method: 'DELETE'
+    });
+    return handleResponse<void>(res);
   }
 };
