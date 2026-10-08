@@ -24,6 +24,7 @@ import { TemplateBasePropertiesTab } from './templateStudio/TemplateBaseProperti
 import { TemplateCustomPropertiesTab } from './templateStudio/TemplateCustomPropertiesTab';
 import { TemplateBaseMethodsTab } from './templateStudio/TemplateBaseMethodsTab';
 import { TemplateCustomMethodsTab } from './templateStudio/TemplateCustomMethodsTab';
+import { TemplateApiMethodsTab } from './templateStudio/TemplateApiMethodsTab';
 
 interface TemplateStudioModalProps {
   isOpen: boolean;
@@ -36,7 +37,9 @@ interface TemplateStudioModalProps {
 type TabType = 'IDENTITY' | 'BASE_PROPERTIES' | 'CUSTOM_PROPERTIES' | 'BASE_METHODS' | 'CUSTOM_METHODS';
 
 const CATEGORIES = [
+  { key: 'GENERAL', label: 'General', desc: 'Universal digital twin (open domain / generic asset)' },
   { key: 'PHYSICAL', label: 'Physical', desc: 'Shop-floor machines, AMRs, conveyors, sorters' },
+  { key: 'OT_DEVICE', label: 'OT Device', desc: 'Industrial equipment & fieldbus protocols (OPC UA, Modbus, S7, MQTT)' },
   { key: 'SOFTWARE', label: 'Software', desc: 'WMS/ERP connectors, external web services' },
   { key: 'VIRTUAL', label: 'Virtual', desc: 'Digital twins, simulated machine replicas' },
   { key: 'LOGICAL', label: 'Logical', desc: 'Bins, pick zones, workflow queues' }
@@ -74,11 +77,11 @@ export const TemplateStudioModal: React.FC<TemplateStudioModalProps> = ({
   // Form State
   const [templateCode, setTemplateCode] = useState('');
   const [templateName, setTemplateName] = useState('');
-  const [category, setCategory] = useState('PHYSICAL');
+  const [category, setCategory] = useState('GENERAL');
   const [resourceType, setResourceType] = useState('');
-  const [communicationMethod, setCommunicationMethod] = useState('OPC_UA');
   const [description, setDescription] = useState('');
   const [documentationUrl, setDocumentationUrl] = useState('');
+  const [responseTokenPropertyName, setResponseTokenPropertyName] = useState('');
 
   // Properties State
   const [baseProperties, setBaseProperties] = useState<PropertySchemaItem[]>(DEFAULT_BASE_PROPERTIES);
@@ -96,11 +99,11 @@ export const TemplateStudioModal: React.FC<TemplateStudioModalProps> = ({
     if (initialTemplate) {
       setTemplateCode(initialTemplate.templateCode);
       setTemplateName(initialTemplate.templateName);
-      setCategory(initialTemplate.category || 'PHYSICAL');
+      setCategory(initialTemplate.category || 'GENERAL');
       setResourceType(initialTemplate.resourceType || '');
-      setCommunicationMethod(initialTemplate.communicationMethod || initialTemplate.communicationProtocol || 'OPC_UA');
       setDescription(initialTemplate.description || '');
       setDocumentationUrl(initialTemplate.documentationUrl || '');
+      setResponseTokenPropertyName(initialTemplate.responseTokenPropertyName || '');
 
       const baseKeys = new Set(DEFAULT_BASE_PROPERTIES.map(p => p.key));
       const loadedBase: PropertySchemaItem[] = [];
@@ -140,11 +143,11 @@ export const TemplateStudioModal: React.FC<TemplateStudioModalProps> = ({
     } else {
       setTemplateCode('');
       setTemplateName('');
-      setCategory('PHYSICAL');
-      setResourceType('CONVEYOR');
-      setCommunicationMethod('OPC_UA');
+      setCategory('GENERAL');
+      setResourceType('PHYSICAL_ASSET');
       setDescription('');
       setDocumentationUrl('');
+      setResponseTokenPropertyName('');
       setBaseProperties(DEFAULT_BASE_PROPERTIES);
       setCustomProperties([]);
       setBaseMethods(DEFAULT_BASE_METHODS);
@@ -259,12 +262,13 @@ export const TemplateStudioModal: React.FC<TemplateStudioModalProps> = ({
     const payload: ResourceTemplateItem = {
       templateCode: templateCode.trim().toUpperCase(),
       templateName: templateName.trim(),
-      category: category.trim().toUpperCase(),
+      category: (category || 'GENERAL').trim().toUpperCase(),
       resourceType: resourceType.trim().toUpperCase(),
-      communicationProtocol: communicationMethod,
-      communicationMethod,
+      communicationMethod: 'INTERNAL',
+      communicationProtocol: 'INTERNAL',
       description: description.trim(),
       documentationUrl: documentationUrl.trim(),
+      responseTokenPropertyName: responseTokenPropertyName.trim() || undefined,
       propertySchema: mergedProperties,
       defaultProperties: defaultPropsMap,
       methodsSchema: mergedMethods,
@@ -503,6 +507,8 @@ export const TemplateStudioModal: React.FC<TemplateStudioModalProps> = ({
               setDescription={setDescription}
               documentationUrl={documentationUrl}
               setDocumentationUrl={setDocumentationUrl}
+              responseTokenPropertyName={responseTokenPropertyName}
+              setResponseTokenPropertyName={setResponseTokenPropertyName}
               isCodeDuplicate={isCodeDuplicate}
               categories={CATEGORIES}
             />
@@ -532,17 +538,35 @@ export const TemplateStudioModal: React.FC<TemplateStudioModalProps> = ({
           )}
 
           {activeTab === 'CUSTOM_METHODS' && (
-            <TemplateCustomMethodsTab
-              customMethods={customMethods}
-              handleAddCustomMethod={handleAddCustomMethod}
-              handleUpdateCustomMethod={handleUpdateCustomMethod}
-              handleRemoveCustomMethod={handleRemoveCustomMethod}
-              commandInput={commandInput}
-              setCommandInput={setCommandInput}
-              supportedCommands={supportedCommands}
-              handleAddCommand={handleAddCommand}
-              handleRemoveCommand={handleRemoveCommand}
-            />
+            category.toUpperCase() === 'SOFTWARE' ? (
+              <TemplateApiMethodsTab
+                methods={customMethods}
+                availableProperties={[...baseProperties, ...customProperties].map(p => p.key)}
+                templateProperties={[...baseProperties, ...customProperties]}
+                handleAddMethod={handleAddCustomMethod}
+                handleUpdateMethod={handleUpdateCustomMethod}
+                handleRemoveMethod={handleRemoveCustomMethod}
+                commandInput={commandInput}
+                setCommandInput={setCommandInput}
+                supportedCommands={supportedCommands}
+                handleAddCommand={handleAddCommand}
+                handleRemoveCommand={handleRemoveCommand}
+              />
+            ) : (
+              <TemplateCustomMethodsTab
+                customMethods={customMethods}
+                availableProperties={[...baseProperties, ...customProperties].map(p => p.key)}
+                templateProperties={[...baseProperties, ...customProperties]}
+                handleAddCustomMethod={handleAddCustomMethod}
+                handleUpdateCustomMethod={handleUpdateCustomMethod}
+                handleRemoveCustomMethod={handleRemoveCustomMethod}
+                commandInput={commandInput}
+                setCommandInput={setCommandInput}
+                supportedCommands={supportedCommands}
+                handleAddCommand={handleAddCommand}
+                handleRemoveCommand={handleRemoveCommand}
+              />
+            )
           )}
         </div>
 

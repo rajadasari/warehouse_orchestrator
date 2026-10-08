@@ -22,7 +22,7 @@
 
 ## Overview & Architecture
 
-The Warehouse Orchestrator platform is composed of 7 Spring Boot microservices and an air-gapped React web user interface:
+The Warehouse Orchestrator platform is composed of 7 Spring Boot microservices, 1 Python telemetry analysis engine, and an air-gapped React web user interface:
 
 | Microservice                   | Function                                          | Port     |
 | :----------------------------- | :------------------------------------------------ | :------- |
@@ -33,6 +33,7 @@ The Warehouse Orchestrator platform is composed of 7 Spring Boot microservices a
 | **`wcs-service`**      | Floor Conveyors, Diverts & Sorter PLC Integration | `8083` |
 | **`asrs-wcs-service`** | High-Bay Stacker Crane Control                    | `8087` |
 | **`fleet-service`**    | AGV / AMR Fleet Manager (VDA 5050 Protocol)       | `8084` |
+| **`analysis-service`** | PLC Handshake, Station Tags & Waveform Engine (Python FastAPI) | `8095` |
 
 ---
 
@@ -75,8 +76,12 @@ C:\release\
 ├── dist\                           <-- Production React UI assets
 │   ├── index.html
 │   └── assets\ (JS, CSS, Web Fonts)
-├── tools\                          <-- Offline Windows Service Wrapper
-│   └── WinSW-x64.exe
+├── tools\                          <-- Offline Windows Service Wrapper & Python Engine
+│   ├── WinSW-x64.exe
+│   └── analyzer\                   <-- Python Handshake & Station Tag Analysis Engine
+│       ├── handshake_analyzer_server.py
+│       ├── requirements.txt
+│       └── start_analyzer.bat
 ├── scripts\                        <-- Automated deployment scripts
 │   ├── db\
 │   │   └── init.sql
@@ -119,6 +124,15 @@ Before copying or running the installer, ensure the following software is runnin
   Get-Service -Name "mosquitto"
   ```
 - Standard port: `1883` (TCP).
+
+### 4. Python 3.10+ (for Telemetry & Handshake Analysis)
+
+- Verify in an elevated PowerShell:
+  ```powershell
+  python --version
+  ```
+- Standard port: `8095` (proxied automatically through Gateway port `8080`).
+- Dependencies: `fastapi`, `uvicorn`, `pydantic` (the deployment script verifies and installs these automatically from `tools\analyzer\requirements.txt`).
 
 ---
 
@@ -187,6 +201,7 @@ warehouse-asrs       Warehouse 03: AS/RS Service    Running  ...   UP
 warehouse-fleet      Warehouse 04: Fleet Manager    Running  ...   UP
 warehouse-wms        Warehouse 05: WMS Service      Running  ...   UP
 warehouse-wes        Warehouse 06: WES Service      Running  ...   UP
+warehouse-analysis   Warehouse 08: Analysis Service Running  ...   UP
 warehouse-gateway    Warehouse 07: Gateway Service  Running  ...   UP
 ```
 

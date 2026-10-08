@@ -44,6 +44,23 @@ public class EntityServiceDispatcher {
         String mName = methodName.trim().toUpperCase();
         ResourceResponseDto resource = resourceManager.getResourceById(resourceId.trim());
 
+        Map<String, Object> mergedMethods = new java.util.HashMap<>();
+        if (resource.getEffectiveMethods() instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> m) {
+                    Object name = m.get("methodName") != null ? m.get("methodName") : m.get("name");
+                    if (name != null) {
+                        String nameKey = String.valueOf(name).trim();
+                        mergedMethods.put(nameKey.toUpperCase(), m);
+                        mergedMethods.put(nameKey, m);
+                    }
+                }
+            }
+        }
+        if (resource.getMethodsConfig() != null) {
+            mergedMethods.putAll(resource.getMethodsConfig());
+        }
+
         ComposedEntityInstance instance = ComposedEntityInstance.builder()
                 .resourceId(resource.getResourceId())
                 .name(resource.getName())
@@ -59,11 +76,11 @@ public class EntityServiceDispatcher {
                 .documentationUrl(resource.getDocumentationUrl())
                 .templateProperties(resource.getTemplateProperties() != null ? resource.getTemplateProperties() : Collections.emptyMap())
                 .customProperties(resource.getCustomProperties() != null ? resource.getCustomProperties() : Collections.emptyMap())
-                .methodsConfig(resource.getMethodsConfig() != null ? resource.getMethodsConfig() : Collections.emptyMap())
+                .methodsConfig(mergedMethods)
                 .effectiveProperties(resource.getEffectiveProperties() != null ? resource.getEffectiveProperties() : Collections.emptyMap())
                 .build();
 
-        String protocol = resource.getProtocol() != null ? resource.getProtocol() : "http";
+        String protocol = resource.getProtocol() != null ? resource.getProtocol() : "";
         String category = resource.getCategory() != null ? resource.getCategory() : "SOFTWARE";
 
         // Locate executor in strategy list

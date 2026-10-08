@@ -3,8 +3,9 @@ package org.platform.resourcemanager.domain.arbitration;
 import org.platform.resourcemanager.domain.model.OperationalStatus;
 import org.platform.resourcemanager.domain.model.Resource;
 import org.platform.resourcemanager.domain.model.ResourceId;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -14,6 +15,8 @@ import java.util.function.Function;
  * Guarantees zero distributed deadlocks via canonical ResourceId ordering and 2-phase rollback.
  */
 public class GangArbitrationEngine {
+
+    private static final Logger log = LoggerFactory.getLogger(GangArbitrationEngine.class);
 
     private final Function<ResourceId, Optional<Resource>> resourceLookup;
     private final Map<String, Lease> activeLeases = new ConcurrentHashMap<>();
@@ -69,7 +72,8 @@ public class GangArbitrationEngine {
             for (Resource rolledBack : successfullyReserved) {
                 try {
                     rolledBack.updateStatus(OperationalStatus.AVAILABLE, rolledBack.getVersion());
-                } catch (Exception ignored) {
+                } catch (Exception ex) {
+                    log.warn("Failed to rollback reservation for resourceId={}: {}", rolledBack.getId(), ex.getMessage());
                 }
             }
             return AllocationResult.rejected("Concurrency collision during gang reservation: " + collision.getMessage(),
@@ -89,7 +93,8 @@ public class GangArbitrationEngine {
                 if (res.getStatus() == OperationalStatus.RESERVED) {
                     try {
                         res.updateStatus(OperationalStatus.AVAILABLE, res.getVersion());
-                    } catch (Exception ignored) {
+                    } catch (Exception ex) {
+                        log.warn("Failed to reset status to AVAILABLE on release for resourceId={}: {}", res.getId(), ex.getMessage());
                     }
                 }
             });
@@ -97,12 +102,28 @@ public class GangArbitrationEngine {
         return true;
     }
 
+    public synchronized boolean releaseByResource(ResourceId resourceId) {
+        if (resourceId == null) {
+            return false;
+        }
+        List<String> matchingLeaseIds = new ArrayList<>();
+        for (Map.Entry<String, Lease> entry : activeLeases.entrySet()) {
+            if (entry.getValue().resourceIds().contains(resourceId)) {
+                matchingLeaseIds.add(entry.getKey());
+            }
+        }
+        boolean anyReleased = false;
+        for (String leaseId : matchingLeaseIds) {
+            anyReleased |= release(leaseId);
+        }
+        return anyReleased;
+    }
+
     public synchronized int expireStaleLeases() {
-        Instant now = Instant.now();
         List<String> expiredIds = new ArrayList<>();
 
         for (Map.Entry<String, Lease> entry : activeLeases.entrySet()) {
-            if (entry.getValue().expiresAt().isBefore(now)) {
+            if (entry.getValue().isExpired()) {
                 expiredIds.add(entry.getKey());
             }
         }

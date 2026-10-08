@@ -127,4 +127,54 @@ class JacksonSerializationTest {
         assertThat(deserialized.key()).isEqualTo("pressurePsi");
         assertThat(deserialized.timestamp()).isNotNull();
     }
+
+    @Test
+    @DisplayName("Should polymorphically serialize and deserialize ResourceState")
+    void shouldRoundTripPolymorphicResourceState() throws Exception {
+        org.platform.resourcemanager.domain.fsm.ResourceState state = new org.platform.resourcemanager.domain.fsm.CoreStates.Faulted("Motor temperature exceeded 85C");
+        String json = mapper.writeValueAsString(state);
+        assertThat(json).contains("@type").contains("FAULTED").contains("Motor temperature exceeded 85C");
+
+        org.platform.resourcemanager.domain.fsm.ResourceState deserialized =
+                mapper.readValue(json, org.platform.resourcemanager.domain.fsm.ResourceState.class);
+        assertThat(deserialized).isInstanceOf(org.platform.resourcemanager.domain.fsm.CoreStates.Faulted.class);
+        assertThat(((org.platform.resourcemanager.domain.fsm.CoreStates.Faulted) deserialized).reason())
+                .isEqualTo("Motor temperature exceeded 85C");
+    }
+
+    @Test
+    @DisplayName("Should polymorphically serialize and deserialize StateTrigger")
+    void shouldRoundTripPolymorphicStateTrigger() throws Exception {
+        org.platform.resourcemanager.domain.fsm.StateTrigger trigger = new org.platform.resourcemanager.domain.fsm.CoreTriggers.Start("OP-42");
+        String json = mapper.writeValueAsString(trigger);
+        assertThat(json).contains("@type").contains("START").contains("OP-42");
+
+        org.platform.resourcemanager.domain.fsm.StateTrigger deserialized =
+                mapper.readValue(json, org.platform.resourcemanager.domain.fsm.StateTrigger.class);
+        assertThat(deserialized).isInstanceOf(org.platform.resourcemanager.domain.fsm.CoreTriggers.Start.class);
+        assertThat(((org.platform.resourcemanager.domain.fsm.CoreTriggers.Start) deserialized).operatorId())
+                .isEqualTo("OP-42");
+    }
+
+    @Test
+    @DisplayName("Should serialize and deserialize ResourceStateChangedEvent with polymorphic state and trigger")
+    void shouldRoundTripResourceStateChangedEvent() throws Exception {
+        org.platform.resourcemanager.domain.event.ResourceStateChangedEvent event =
+                org.platform.resourcemanager.domain.event.ResourceStateChangedEvent.of(
+                        ResourceId.of("tenant-1", "ROBOT-1"),
+                        new org.platform.resourcemanager.domain.fsm.CoreStates.Running(),
+                        new org.platform.resourcemanager.domain.fsm.CoreStates.Faulted("Overload"),
+                        new org.platform.resourcemanager.domain.fsm.CoreTriggers.Fault("Overload", "E-401")
+                );
+
+        String json = mapper.writeValueAsString(event);
+        assertThat(json).contains("ROBOT-1").contains("RUNNING").contains("FAULTED");
+
+        org.platform.resourcemanager.domain.event.ResourceStateChangedEvent deserialized =
+                mapper.readValue(json, org.platform.resourcemanager.domain.event.ResourceStateChangedEvent.class);
+        assertThat(deserialized.resourceId().resourceId()).isEqualTo("ROBOT-1");
+        assertThat(deserialized.oldState()).isInstanceOf(org.platform.resourcemanager.domain.fsm.CoreStates.Running.class);
+        assertThat(deserialized.newState()).isInstanceOf(org.platform.resourcemanager.domain.fsm.CoreStates.Faulted.class);
+        assertThat(deserialized.trigger()).isInstanceOf(org.platform.resourcemanager.domain.fsm.CoreTriggers.Fault.class);
+    }
 }

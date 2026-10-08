@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -101,6 +102,10 @@ public class ApiMapperHandler implements WorkflowNodeHandler {
             RestClient client = RestClient.builder().requestFactory(requestFactory).build();
             RestClient.RequestBodySpec spec = client.method(HttpMethod.valueOf(httpMethod)).uri(resolvedUrl);
             headers.forEach(spec::header);
+            boolean hasContentType = headers.keySet().stream().anyMatch(h -> h.equalsIgnoreCase("Content-Type"));
+            if (!hasContentType) {
+                spec.contentType(MediaType.APPLICATION_JSON);
+            }
             if (!"GET".equalsIgnoreCase(httpMethod) && transformedPayload != null) {
                 spec.body(transformedPayload);
             }

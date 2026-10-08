@@ -91,7 +91,7 @@ export interface DeviceTag {
   name: string;
   nodeId: string;
   folder: string;
-  dataType: 'Boolean' | 'Int16' | 'Int32' | 'Float' | 'Double' | 'String';
+  dataType: 'Boolean' | 'Int16' | 'Int32' | 'Float' | 'Double' | 'String' | 'Variant' | (string & {});
   quality: 'GOOD (0x00000000)' | 'BAD (0x80000000)' | 'BAD (0x80050000 - Bad_CommunicationFailure)' | 'UNCERTAIN' | (string & {});
   value: unknown;
   timestamp: string;
@@ -103,6 +103,10 @@ export interface DeviceTag {
   publishingIntervalMs?: number;
   deadbandValue?: number;
   isLoggingEnabled?: boolean;
+  parentTagId?: string | null;
+  isUdt?: boolean;
+  isUdtMember?: boolean;
+  memberPath?: string | null;
 }
 
 export interface SessionDiagnosticsData {

@@ -92,4 +92,35 @@ class GangArbitrationTest {
         assertThat(r1.getStatus()).isEqualTo(OperationalStatus.AVAILABLE);
         assertThat(r3.getStatus()).isEqualTo(OperationalStatus.AVAILABLE);
     }
+
+    @Test
+    @DisplayName("Should release lease by resource ID")
+    void shouldReleaseLeaseByResource() {
+        Set<ResourceId> requested = Set.of(r1.getId(), r2.getId());
+        AllocationRequest req = AllocationRequest.of(requested, "WORKFLOW-104", Duration.ofMinutes(5));
+
+        AllocationResult result = engine.allocateGang(req);
+        assertThat(result.isGranted()).isTrue();
+
+        boolean released = engine.releaseByResource(r1.getId());
+        assertThat(released).isTrue();
+
+        assertThat(r1.getStatus()).isEqualTo(OperationalStatus.AVAILABLE);
+        assertThat(r2.getStatus()).isEqualTo(OperationalStatus.AVAILABLE);
+        assertThat(engine.getActiveLeases()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should detect expired lease using monotonic clock deadline")
+    void shouldDetectExpiredLeaseUsingMonotonicClock() {
+        // Lease with duration 1 millisecond
+        Lease lease = Lease.of(Set.of(r1.getId()), "TEST", Duration.ofMillis(1));
+        assertThat(lease.isExpired()).isFalse();
+
+        try {
+            Thread.sleep(10);
+        } catch (InterruptedException ignored) {}
+
+        assertThat(lease.isExpired()).isTrue();
+    }
 }

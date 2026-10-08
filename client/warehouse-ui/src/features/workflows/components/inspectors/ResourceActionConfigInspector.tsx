@@ -9,7 +9,10 @@ import {
   AlertCircle,
   Plus,
   Trash2,
-  BookmarkPlus
+  BookmarkPlus,
+  Database,
+  Variable,
+  Hash
 } from 'lucide-react';
 import { WorkflowNode, workflowService } from '../../../../services/workflowService';
 import { fetchResourcesApi, ResourceItem } from '../../../../services/resourceService';
@@ -110,6 +113,7 @@ export const ResourceActionConfigInspector: React.FC<ResourceActionConfigInspect
       : '';
     onUpdateConfig({
       ...cfg,
+      resourceId: resCode,
       resourceCode: resCode,
       methodName: firstMethod,
       parameters: {}
@@ -320,92 +324,258 @@ export const ResourceActionConfigInspector: React.FC<ResourceActionConfigInspect
         </div>
 
         {/* Render method-defined parameters or custom params */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {activeMethod?.parameters && activeMethod.parameters.length > 0 ? (
-            activeMethod.parameters.map(p => (
-              <div key={p.name} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                  <span style={{ color: '#cbd5e1', fontWeight: 500 }}>
-                    {p.name} {p.required && <span style={{ color: '#ef4444' }}>*</span>}
-                  </span>
-                  <span style={{ color: '#64748b' }}>{p.type || 'string'}</span>
+            activeMethod.parameters.map(p => {
+              const val = String(currentParams[p.name] ?? '');
+              const isContextRef = val.startsWith('#{') || val.startsWith('context.');
+              return (
+                <div key={p.name} style={{
+                  padding: '10px',
+                  backgroundColor: '#090d16',
+                  border: '1px solid #1e293b',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#cbd5e1', fontWeight: 600, fontSize: '11px' }}>
+                      {p.name} {p.required && <span style={{ color: '#ef4444' }}>*</span>}
+                      <span style={{ marginLeft: '6px', color: '#64748b', fontWeight: 400 }}>({p.type || 'string'})</span>
+                    </span>
+                    
+                    {/* Toggle between Static and Context Ref */}
+                    <div style={{ display: 'flex', gap: '2px', backgroundColor: '#0f172a', padding: '2px', borderRadius: '4px', border: '1px solid #334155' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isContextRef) {
+                            handleParamChange(p.name, '');
+                          }
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          padding: '2px 6px',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          borderRadius: '3px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          backgroundColor: !isContextRef ? '#38bdf8' : 'transparent',
+                          color: !isContextRef ? '#0f172a' : '#94a3b8'
+                        }}
+                      >
+                        <Hash size={11} /> Static
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isContextRef) {
+                            handleParamChange(p.name, `#{context.${p.name}}`);
+                          }
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          padding: '2px 6px',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          borderRadius: '3px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          backgroundColor: isContextRef ? '#a855f7' : 'transparent',
+                          color: isContextRef ? '#ffffff' : '#94a3b8'
+                        }}
+                      >
+                        <Variable size={11} /> Context Ref
+                      </button>
+                    </div>
+                  </div>
+
+                  {isContextRef ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <input
+                        type="text"
+                        value={val}
+                        onChange={e => handleParamChange(p.name, e.target.value)}
+                        placeholder={`#{context.${p.name}}`}
+                        style={{
+                          height: '48px',
+                          backgroundColor: '#0f172a',
+                          border: '1px solid #7c3aed',
+                          borderRadius: '6px',
+                          color: '#c084fc',
+                          fontFamily: 'monospace',
+                          padding: '0 10px',
+                          fontSize: '12px',
+                          outline: 'none'
+                        }}
+                      />
+                      {availableVariables.length > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontSize: '10px', color: '#64748b' }}>Quick bind:</span>
+                          <select
+                            onChange={e => {
+                              if (e.target.value) {
+                                handleParamChange(p.name, `#{context.${e.target.value}}`);
+                              }
+                            }}
+                            defaultValue=""
+                            style={{
+                              backgroundColor: '#1e293b',
+                              border: '1px solid #334155',
+                              borderRadius: '4px',
+                              color: '#cbd5e1',
+                              fontSize: '10px',
+                              padding: '2px 6px'
+                            }}
+                          >
+                            <option value="">-- Choose Context Variable --</option>
+                            {availableVariables.map(v => (
+                              <option key={v.name} value={v.name}>
+                                {v.name} ({v.type || 'string'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={val}
+                      onChange={e => handleParamChange(p.name, e.target.value)}
+                      placeholder={`Static value for ${p.name}`}
+                      style={{
+                        height: '48px',
+                        backgroundColor: '#0f172a',
+                        border: '1px solid #1e293b',
+                        borderRadius: '6px',
+                        color: '#f8fafc',
+                        padding: '0 10px',
+                        fontSize: '12px',
+                        outline: 'none'
+                      }}
+                    />
+                  )}
                 </div>
-                <input
-                  type="text"
-                  value={String(currentParams[p.name] ?? '')}
-                  onChange={e => handleParamChange(p.name, e.target.value)}
-                  placeholder={`Value or #{context.${p.name}}`}
-                  style={{
-                    height: '48px',
-                    backgroundColor: '#090d16',
-                    border: '1px solid #1e293b',
-                    borderRadius: '6px',
-                    color: '#f8fafc',
-                    padding: '0 10px',
-                    fontSize: '12px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-            ))
+              );
+            })
           ) : null}
 
           {/* Any additional params configured */}
           {Object.keys(currentParams)
             .filter(k => !activeMethod?.parameters?.some(p => p.name === k))
-            .map(k => (
-              <div key={k} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <input
-                  type="text"
-                  value={k}
-                  readOnly
-                  style={{
-                    width: '35%',
-                    height: '48px',
-                    backgroundColor: '#090d16',
-                    border: '1px solid #1e293b',
-                    borderRadius: '6px',
-                    color: '#94a3b8',
-                    padding: '0 8px',
-                    fontSize: '11px'
-                  }}
-                />
-                <input
-                  type="text"
-                  value={String(currentParams[k] ?? '')}
-                  onChange={e => handleParamChange(k, e.target.value)}
-                  placeholder="Value or #{context.var}"
-                  style={{
-                    flex: 1,
-                    height: '48px',
-                    backgroundColor: '#090d16',
-                    border: '1px solid #1e293b',
-                    borderRadius: '6px',
-                    color: '#f8fafc',
-                    padding: '0 8px',
-                    fontSize: '12px',
-                    outline: 'none'
-                  }}
-                />
-                <button
-                  onClick={() => handleRemoveParam(k)}
-                  style={{
-                    height: '48px',
-                    width: '40px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    color: '#ef4444',
-                    borderRadius: '6px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
+            .map(k => {
+              const val = String(currentParams[k] ?? '');
+              const isContextRef = val.startsWith('#{') || val.startsWith('context.');
+              return (
+                <div key={k} style={{
+                  padding: '8px',
+                  backgroundColor: '#090d16',
+                  border: '1px solid #1e293b',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      value={k}
+                      readOnly
+                      style={{
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        color: '#cbd5e1',
+                        fontWeight: 600,
+                        fontSize: '11px',
+                        outline: 'none'
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '2px', backgroundColor: '#0f172a', padding: '2px', borderRadius: '4px', border: '1px solid #334155' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isContextRef) handleParamChange(k, '');
+                          }}
+                          style={{
+                            padding: '2px 5px',
+                            fontSize: '9px',
+                            fontWeight: 600,
+                            borderRadius: '3px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            backgroundColor: !isContextRef ? '#38bdf8' : 'transparent',
+                            color: !isContextRef ? '#0f172a' : '#94a3b8'
+                          }}
+                        >
+                          Static
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isContextRef) handleParamChange(k, `#{context.${k}}`);
+                          }}
+                          style={{
+                            padding: '2px 5px',
+                            fontSize: '9px',
+                            fontWeight: 600,
+                            borderRadius: '3px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            backgroundColor: isContextRef ? '#a855f7' : 'transparent',
+                            color: isContextRef ? '#ffffff' : '#94a3b8'
+                          }}
+                        >
+                          Context
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveParam(k)}
+                        style={{
+                          height: '24px',
+                          width: '24px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                          color: '#ef4444',
+                          borderRadius: '4px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={val}
+                    onChange={e => handleParamChange(k, e.target.value)}
+                    placeholder={isContextRef ? `#{context.${k}}` : 'Value'}
+                    style={{
+                      height: '48px',
+                      backgroundColor: '#0f172a',
+                      border: `1px solid ${isContextRef ? '#7c3aed' : '#1e293b'}`,
+                      borderRadius: '6px',
+                      color: isContextRef ? '#c084fc' : '#f8fafc',
+                      fontFamily: isContextRef ? 'monospace' : 'inherit',
+                      padding: '0 8px',
+                      fontSize: '12px',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              );
+            })}
         </div>
       </div>
 
@@ -414,7 +584,6 @@ export const ResourceActionConfigInspector: React.FC<ResourceActionConfigInspect
         <ContextVariableChips
           variables={availableVariables}
           onInsertVariable={token => {
-            // Pick first param or add new param
             const keys = Object.keys(currentParams);
             if (keys.length > 0) {
               handleParamChange(keys[0], `#{${token}}`);
@@ -425,16 +594,17 @@ export const ResourceActionConfigInspector: React.FC<ResourceActionConfigInspect
         />
       )}
 
-      {/* 4. Timeout */}
+      {/* 4. Output Context Variable */}
       <div>
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: '#94a3b8', marginBottom: '6px' }}>
-          <Clock size={14} style={{ color: '#f59e0b' }} />
-          Execution Timeout (ms)
+          <Database size={14} style={{ color: '#10b981' }} />
+          Output Context Variable
         </label>
         <input
-          type="number"
-          value={timeoutMs}
-          onChange={e => onUpdateConfig({ ...cfg, timeoutMs: Number(e.target.value) || 5000 })}
+          type="text"
+          value={String(cfg.outputVariable || 'actionResult')}
+          onChange={e => onUpdateConfig({ ...cfg, outputVariable: e.target.value.trim() })}
+          placeholder="e.g. actionResult or countIncremented"
           style={{
             width: '100%',
             height: '48px',
@@ -444,9 +614,53 @@ export const ResourceActionConfigInspector: React.FC<ResourceActionConfigInspect
             color: '#f8fafc',
             padding: '0 12px',
             fontSize: '12px',
-            outline: 'none'
+            outline: 'none',
+            boxSizing: 'border-box'
           }}
         />
+        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+          Outcome is stored in context as: <code style={{ color: '#10b981', backgroundColor: '#090d16', padding: '1px 5px', borderRadius: '3px' }}>{`#{context.${cfg.outputVariable || 'actionResult'}}`}</code>
+        </div>
+      </div>
+
+      {/* 5. Timeout & Simulation Option */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: '#94a3b8', marginBottom: '6px' }}>
+            <Clock size={14} style={{ color: '#f59e0b' }} />
+            Execution Timeout (ms)
+          </label>
+          <input
+            type="number"
+            value={timeoutMs}
+            onChange={e => onUpdateConfig({ ...cfg, timeoutMs: Number(e.target.value) || 5000 })}
+            style={{
+              width: '100%',
+              height: '48px',
+              backgroundColor: '#090d16',
+              border: '1px solid #1e293b',
+              borderRadius: '6px',
+              color: '#f8fafc',
+              padding: '0 12px',
+              fontSize: '12px',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minHeight: '48px', padding: '0 4px' }}>
+          <input
+            type="checkbox"
+            id="exec-sim-cb"
+            checked={Boolean(cfg.executeInSimulation)}
+            onChange={e => onUpdateConfig({ ...cfg, executeInSimulation: e.target.checked })}
+            style={{ width: '20px', height: '20px', accentColor: '#10b981', cursor: 'pointer' }}
+          />
+          <label htmlFor="exec-sim-cb" style={{ fontSize: '12px', color: '#cbd5e1', cursor: 'pointer', userSelect: 'none' }}>
+            Execute Live Resource Method during Simulator Runs
+          </label>
+        </div>
       </div>
 
       {/* 5. Save as Composed Node Button */}

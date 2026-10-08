@@ -112,6 +112,20 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- In-Memory Dynamic Java Script & Method Compiler -->
+        <dependency>
+            <groupId>org.codehaus.janino</groupId>
+            <artifactId>janino</artifactId>
+            <version>3.1.12</version>
+        </dependency>
+
+        <!-- Dynamic Python Method Scripting (Isolated Engine) -->
+        <dependency>
+            <groupId>org.python</groupId>
+            <artifactId>jython-standalone</artifactId>
+            <version>2.7.3</version>
+        </dependency>
+
         <!-- Testing -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

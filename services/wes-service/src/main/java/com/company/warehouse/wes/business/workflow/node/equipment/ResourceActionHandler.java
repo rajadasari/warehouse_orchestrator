@@ -39,12 +39,12 @@ public class ResourceActionHandler implements WorkflowNodeHandler {
     public NodeExecutionResult execute(WorkflowNodeExecutionContext context) {
         Map<String, Object> cfg = context.nodeConfig() != null ? context.nodeConfig() : Map.of();
 
-        String resourceId = String.valueOf(cfg.getOrDefault("resourceId", "")).trim();
+        String resourceId = String.valueOf(cfg.getOrDefault("resourceId", cfg.getOrDefault("resourceCode", ""))).trim();
         String methodName = String.valueOf(cfg.getOrDefault("methodName", "")).trim();
         String outputVar = String.valueOf(cfg.getOrDefault("outputVariable", "actionResult")).trim();
 
         if (resourceId.isBlank() || methodName.isBlank()) {
-            return NodeExecutionResult.failed("RESOURCE_ACTION requires both 'resourceId' and 'methodName' to be configured");
+            return NodeExecutionResult.failed("RESOURCE_ACTION requires both 'resourceId' (or 'resourceCode') and 'methodName' to be configured");
         }
 
         log.info("Executing ResourceAction: resource='{}', method='{}', node='{}' (simMode={})",

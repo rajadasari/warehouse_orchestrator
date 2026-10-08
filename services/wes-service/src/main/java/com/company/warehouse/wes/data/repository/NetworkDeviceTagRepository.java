@@ -18,4 +18,10 @@ public interface NetworkDeviceTagRepository extends JpaRepository<NetworkDeviceT
     List<NetworkDeviceTagEntity> findByChannelIdAndFolderPath(UUID channelId, String folderPath);
 
     int countByChannelId(UUID channelId);
+
+    List<NetworkDeviceTagEntity> findByParentTagId(UUID parentTagId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    void deleteByParentTagId(UUID parentTagId);
 }

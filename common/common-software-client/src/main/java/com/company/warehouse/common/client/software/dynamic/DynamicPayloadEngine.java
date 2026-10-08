@@ -233,8 +233,9 @@ public class DynamicPayloadEngine {
 
             for (Map.Entry<String, String> entry : headers.entrySet()) {
                 String val = entry.getValue();
-                if (val != null && (val.contains("token") || val.contains("<") || val.contains("{"))) {
-                    val = val.replace("<token>", activeToken)
+                if (val != null && !activeToken.isEmpty()) {
+                    val = val.replace("{{auth.bearerToken}}", "Bearer " + activeToken)
+                             .replace("<token>", activeToken)
                              .replace("{token}", activeToken)
                              .replace("{{token}}", activeToken)
                              .replace("{{auth.token}}", activeToken);

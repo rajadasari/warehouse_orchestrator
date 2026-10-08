@@ -151,6 +151,26 @@ public class TokenManager {
         }
     }
 
+    public void cacheToken(String resourceId, String token) {
+        cacheToken(resourceId, token, null);
+    }
+
+    public void cacheToken(String resourceId, String token, Instant expiresAt) {
+        String targetResId = resolveResourceId(resourceId);
+        if (targetResId == null || token == null || token.trim().isEmpty()) {
+            return;
+        }
+        Instant exp = expiresAt != null ? expiresAt : determineTokenExpiration(token, 3600L);
+        tokenCache.put(targetResId, TokenCacheEntry.builder()
+                .token(token.trim())
+                .expiresAt(exp)
+                .lastAcquiredAt(Instant.now())
+                .resolvedBaseUrl(resolveBaseUrl(targetResId))
+                .lastStatusCode(200)
+                .build());
+        log.info("Directly cached bearer token for resource '{}', valid until: {}", targetResId, exp);
+    }
+
     public TokenStatus getStatus() {
         return getStatus(null);
     }

@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -36,6 +37,7 @@ public class ResourceTemplateController {
     private final EntityArchetypeRegistry archetypeRegistry;
     private final EntityTemplateValidator templateValidator;
     private final EntityComposerMapper composerMapper;
+    private final com.company.warehouse.wes.business.resource.compiler.PolyglotScriptDispatcher scriptDispatcher;
 
     @GetMapping("/archetypes")
     public ResponseEntity<List<ResourceTemplateDto>> getArchetypes(@RequestParam(required = false) String category) {
@@ -137,5 +139,69 @@ public class ResourceTemplateController {
         log.info("POST /api/v1/wes/resource-templates/import: Importing package with {} templates, overwrite={}",
                 pkg.getTemplates() != null ? pkg.getTemplates().size() : 0, overwrite);
         return ResponseEntity.ok(resourceManager.importTemplatePackage(pkg, overwrite));
+    }
+
+    @PostMapping("/test-method")
+    public ResponseEntity<com.company.warehouse.wes.domain.resource.MethodExecutionResult> testMethod(
+            @RequestBody com.company.warehouse.wes.api.dto.resource.MethodTestRequestDto request) {
+        long start = System.currentTimeMillis();
+        String mName = request.getMethodName() != null && !request.getMethodName().isBlank() ? request.getMethodName().trim() : "TEST_METHOD";
+        String language = request.getLanguage() != null && !request.getLanguage().isBlank() ? request.getLanguage().trim().toUpperCase() : "JAVA";
+        log.info("POST /api/v1/wes/resource-templates/test-method: Testing dynamic {} logic for '{}'", language, mName);
+
+        List<com.company.warehouse.wes.business.resource.compiler.MethodTraceLogEntry> traceLogs = new java.util.ArrayList<>();
+        traceLogs.add(com.company.warehouse.wes.business.resource.compiler.MethodTraceLogEntry.info("INIT", "Starting dynamic " + language + " method test for '" + mName + "'"));
+
+        Map<String, Object> workingProperties = new java.util.concurrent.ConcurrentHashMap<>(
+                request.getProperties() != null ? request.getProperties() : java.util.Collections.emptyMap()
+        );
+        Map<String, Object> params = request.getParameters() != null ? request.getParameters() : java.util.Collections.emptyMap();
+        Map<String, Object> initialProps = new java.util.HashMap<>(workingProperties);
+
+        try {
+            long compStart = System.currentTimeMillis();
+            Object result = scriptDispatcher.execute(language, request.getEffectiveScript(), workingProperties, params, java.util.Collections.emptyMap(), traceLogs);
+            long compTime = System.currentTimeMillis() - compStart;
+            traceLogs.add(com.company.warehouse.wes.business.resource.compiler.MethodTraceLogEntry.info("EXEC", "Execution completed in " + compTime + "ms. Result: " + result));
+
+            Map<String, Object> updated = new java.util.HashMap<>();
+            if (request.getStoreResultToProperty() != null && !request.getStoreResultToProperty().isBlank() && result != null) {
+                workingProperties.put(request.getStoreResultToProperty(), result);
+                updated.put(request.getStoreResultToProperty(), result);
+                traceLogs.add(com.company.warehouse.wes.business.resource.compiler.MethodTraceLogEntry.info("WRITE_BACK", "Written to property '" + request.getStoreResultToProperty() + "': " + result));
+            }
+            for (Map.Entry<String, Object> e : workingProperties.entrySet()) {
+                if (!java.util.Objects.equals(initialProps.get(e.getKey()), e.getValue())) {
+                    updated.put(e.getKey(), e.getValue());
+                }
+            }
+
+            long totalTime = System.currentTimeMillis() - start;
+            traceLogs.add(com.company.warehouse.wes.business.resource.compiler.MethodTraceLogEntry.info("COMPLETE", "Test completed in " + totalTime + "ms"));
+
+            return ResponseEntity.ok(com.company.warehouse.wes.domain.resource.MethodExecutionResult.builder()
+                    .success(true)
+                    .methodName(mName)
+                    .statusCode(200)
+                    .data(result)
+                    .updatedProperties(updated)
+                    .traceLogs(traceLogs)
+                    .executionTimeMs(totalTime)
+                    .message("Dynamic " + language + " method executed successfully")
+                    .build());
+        } catch (Exception e) {
+            long totalTime = System.currentTimeMillis() - start;
+            log.warn("Dynamic {} method test '{}' failed: {}", language, mName, e.getMessage());
+            traceLogs.add(com.company.warehouse.wes.business.resource.compiler.MethodTraceLogEntry.error("ERROR", e.getMessage()));
+            return ResponseEntity.ok(com.company.warehouse.wes.domain.resource.MethodExecutionResult.builder()
+                    .success(false)
+                    .methodName(mName)
+                    .statusCode(400)
+                    .error(e.getMessage())
+                    .message("Execution error: " + e.getMessage())
+                    .traceLogs(traceLogs)
+                    .executionTimeMs(totalTime)
+                    .build());
+        }
     }
 }

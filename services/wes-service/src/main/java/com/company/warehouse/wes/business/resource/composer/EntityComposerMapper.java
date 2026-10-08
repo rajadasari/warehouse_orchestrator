@@ -52,17 +52,10 @@ public class EntityComposerMapper {
 
         List<Map<String, Object>> methodSchemaList = new ArrayList<>();
         for (ServiceDefinition s : template.getServiceDefinitions()) {
-            Map<String, Object> map = new LinkedHashMap<>();
-            map.put("name", s.getName());
-            if (s.getDisplayName() != null) map.put("displayName", s.getDisplayName());
-            if (s.getCategory() != null) map.put("category", s.getCategory());
-            if (s.getDescription() != null) map.put("description", s.getDescription());
-            if (s.getPathTemplate() != null) map.put("pathTemplate", s.getPathTemplate());
-            if (s.getHttpMethod() != null) map.put("httpMethod", s.getHttpMethod());
-            if (s.getParametersSchema() != null && !s.getParametersSchema().isEmpty()) map.put("parametersSchema", s.getParametersSchema());
-            if (s.getOutputSchema() != null && !s.getOutputSchema().isEmpty()) map.put("outputSchema", s.getOutputSchema());
-            if (s.getDefaultHeaders() != null && !s.getDefaultHeaders().isEmpty()) map.put("defaultHeaders", s.getDefaultHeaders());
-            methodSchemaList.add(map);
+            Map<String, Object> map = toMethodMap(s);
+            if (map != null) {
+                methodSchemaList.add(map);
+            }
         }
 
         return ResourceTemplateDto.builder()
@@ -77,6 +70,7 @@ public class EntityComposerMapper {
                 .defaultHost(info.getDefaultHost())
                 .defaultPort(info.getDefaultPort())
                 .documentationUrl(info.getDocumentationUrl())
+                .responseTokenPropertyName(info.getResponseTokenPropertyName())
                 .propertySchema(propSchemaList)
                 .defaultProperties(new LinkedHashMap<>(template.getDefaultProperties()))
                 .supportedCommands(new ArrayList<>(template.getSupportedCommands()))
@@ -95,7 +89,7 @@ public class EntityComposerMapper {
         EntityBasicInfo info = EntityBasicInfo.builder()
                 .templateCode(dto.getTemplateCode() != null ? dto.getTemplateCode().trim().toUpperCase() : null)
                 .templateName(dto.getTemplateName())
-                .category(dto.getCategory() != null ? dto.getCategory().trim().toUpperCase() : "SOFTWARE")
+                .category(dto.getCategory() != null ? dto.getCategory().trim().toUpperCase() : "GENERAL")
                 .resourceType(dto.getResourceType() != null ? dto.getResourceType().trim().toUpperCase() : "REST_GENERIC")
                 .communicationProtocol(dto.getCommunicationMethod() != null && !dto.getCommunicationMethod().trim().isEmpty()
                         ? dto.getCommunicationMethod().trim().toUpperCase()
@@ -106,6 +100,7 @@ public class EntityComposerMapper {
                 .defaultHost(dto.getDefaultHost() != null ? dto.getDefaultHost() : "127.0.0.1")
                 .defaultPort(dto.getDefaultPort() != null && dto.getDefaultPort() > 0 ? dto.getDefaultPort() : 8080)
                 .documentationUrl(dto.getDocumentationUrl())
+                .responseTokenPropertyName(dto.getResponseTokenPropertyName())
                 .active(dto.isActive())
                 .build();
 
@@ -140,33 +135,10 @@ public class EntityComposerMapper {
         List<ServiceDefinition> services = new ArrayList<>();
         if (dto.getMethodsSchema() != null) {
             for (Map<String, Object> map : dto.getMethodsSchema()) {
-                String name = String.valueOf(map.get("name"));
-                if (name == null || name.trim().isEmpty() || name.equals("null")) continue;
-
-                String displayName = map.containsKey("displayName") ? String.valueOf(map.get("displayName")) : name;
-                String category = map.containsKey("category") ? String.valueOf(map.get("category")) : "General";
-                String desc = map.containsKey("description") ? String.valueOf(map.get("description")) : null;
-                String path = map.containsKey("pathTemplate") ? String.valueOf(map.get("pathTemplate"))
-                        : map.containsKey("path") ? String.valueOf(map.get("path")) : null;
-                String method = map.containsKey("httpMethod") ? String.valueOf(map.get("httpMethod")) : "POST";
-                Map<String, Object> paramsSchema = map.containsKey("parametersSchema") && map.get("parametersSchema") instanceof Map
-                        ? (Map<String, Object>) map.get("parametersSchema") : null;
-                Map<String, Object> outSchema = map.containsKey("outputSchema") && map.get("outputSchema") instanceof Map
-                        ? (Map<String, Object>) map.get("outputSchema") : null;
-                Map<String, String> defaultHdrs = map.containsKey("defaultHeaders") && map.get("defaultHeaders") instanceof Map
-                        ? (Map<String, String>) map.get("defaultHeaders") : null;
-
-                services.add(ServiceDefinition.builder()
-                        .name(name)
-                        .displayName(displayName)
-                        .category(category)
-                        .description(desc)
-                        .pathTemplate(path)
-                        .httpMethod(method)
-                        .parametersSchema(paramsSchema)
-                        .outputSchema(outSchema)
-                        .defaultHeaders(defaultHdrs)
-                        .build());
+                ServiceDefinition service = toServiceDefinition(map);
+                if (service != null) {
+                    services.add(service);
+                }
             }
         }
 
@@ -197,6 +169,7 @@ public class EntityComposerMapper {
                 .defaultHost(entity.getDefaultHost())
                 .defaultPort(entity.getDefaultPort())
                 .documentationUrl(entity.getDocumentationUrl())
+                .responseTokenPropertyName(entity.getResponseTokenPropertyName())
                 .active(entity.isActive())
                 .build();
 
@@ -219,20 +192,10 @@ public class EntityComposerMapper {
         List<Map<String, Object>> methodSchemaMaps = deserializeList(entity.getMethodsSchema());
         List<ServiceDefinition> services = new ArrayList<>();
         for (Map<String, Object> map : methodSchemaMaps) {
-            String name = String.valueOf(map.get("name"));
-            if (name == null || name.trim().isEmpty() || name.equals("null")) continue;
-            services.add(ServiceDefinition.builder()
-                    .name(name)
-                    .displayName(map.containsKey("displayName") ? String.valueOf(map.get("displayName")) : name)
-                    .category(map.containsKey("category") ? String.valueOf(map.get("category")) : "General")
-                    .description(map.containsKey("description") ? String.valueOf(map.get("description")) : null)
-                    .pathTemplate(map.containsKey("pathTemplate") ? String.valueOf(map.get("pathTemplate")) : null)
-                    .httpMethod(map.containsKey("httpMethod") ? String.valueOf(map.get("httpMethod")) : "POST")
-                    .parametersSchema(map.containsKey("parametersSchema") && map.get("parametersSchema") instanceof Map
-                            ? (Map<String, Object>) map.get("parametersSchema") : null)
-                    .outputSchema(map.containsKey("outputSchema") && map.get("outputSchema") instanceof Map
-                            ? (Map<String, Object>) map.get("outputSchema") : null)
-                    .build());
+            ServiceDefinition service = toServiceDefinition(map);
+            if (service != null) {
+                services.add(service);
+            }
         }
 
         return ComposedEntityTemplate.builder()
@@ -257,6 +220,7 @@ public class EntityComposerMapper {
                 .communicationProtocol(info.getCommunicationProtocol())
                 .description(info.getDescription())
                 .documentationUrl(info.getDocumentationUrl())
+                .responseTokenPropertyName(info.getResponseTokenPropertyName())
                 .propertySchema(serialize(dto.getPropertySchema()))
                 .defaultProperties(serialize(dto.getDefaultProperties()))
                 .supportedCommands(serialize(dto.getSupportedCommands()))
@@ -291,6 +255,80 @@ public class EntityComposerMapper {
         } catch (Exception e) {
             return Collections.emptyList();
         }
+    }
+
+    private ServiceDefinition toServiceDefinition(Map<String, Object> map) {
+        if (map == null) return null;
+        String name = String.valueOf(map.getOrDefault("name", map.get("methodName")));
+        if (name == null || name.trim().isEmpty() || name.equals("null")) return null;
+
+        String displayName = map.containsKey("displayName") ? String.valueOf(map.get("displayName")) : name;
+        String category = map.containsKey("category") ? String.valueOf(map.get("category")) : "General";
+        String desc = map.containsKey("description") ? String.valueOf(map.get("description")) : null;
+        String path = map.containsKey("pathTemplate") ? String.valueOf(map.get("pathTemplate"))
+                : map.containsKey("path") ? String.valueOf(map.get("path")) : null;
+        String method = map.containsKey("httpMethod") ? String.valueOf(map.get("httpMethod")) : "POST";
+        String language = map.containsKey("language") ? String.valueOf(map.get("language")) : null;
+        String javaCode = map.containsKey("javaCode") ? String.valueOf(map.get("javaCode")) : null;
+        String storeProp = map.containsKey("storeResultToProperty") ? String.valueOf(map.get("storeResultToProperty")) : null;
+        String outputType = map.containsKey("outputType") ? String.valueOf(map.get("outputType")) : null;
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> paramsSchema = map.containsKey("parametersSchema") && map.get("parametersSchema") instanceof Map
+                ? (Map<String, Object>) map.get("parametersSchema") : null;
+        @SuppressWarnings("unchecked")
+        Map<String, Object> outSchema = map.containsKey("outputSchema") && map.get("outputSchema") instanceof Map
+                ? (Map<String, Object>) map.get("outputSchema") : null;
+        @SuppressWarnings("unchecked")
+        Map<String, String> defaultHdrs = map.containsKey("defaultHeaders") && map.get("defaultHeaders") instanceof Map
+                ? (Map<String, String>) map.get("defaultHeaders") : null;
+
+        Map<String, Object> additional = new LinkedHashMap<>(map);
+        additional.keySet().removeAll(java.util.Set.of(
+                "name", "methodName", "displayName", "category", "description", "pathTemplate", "path",
+                "httpMethod", "language", "javaCode", "storeResultToProperty", "outputType",
+                "parametersSchema", "outputSchema", "defaultHeaders"
+        ));
+
+        return ServiceDefinition.builder()
+                .name(name)
+                .displayName(displayName)
+                .category(category)
+                .description(desc)
+                .pathTemplate(path)
+                .httpMethod(method)
+                .language(language)
+                .javaCode(javaCode)
+                .storeResultToProperty(storeProp)
+                .outputType(outputType)
+                .parametersSchema(paramsSchema)
+                .outputSchema(outSchema)
+                .defaultHeaders(defaultHdrs)
+                .additionalAttributes(additional)
+                .build();
+    }
+
+    private Map<String, Object> toMethodMap(ServiceDefinition s) {
+        if (s == null) return null;
+        Map<String, Object> map = new LinkedHashMap<>();
+        if (s.getAdditionalAttributes() != null) {
+            map.putAll(s.getAdditionalAttributes());
+        }
+        map.put("name", s.getName());
+        map.put("methodName", s.getName());
+        if (s.getDisplayName() != null) map.put("displayName", s.getDisplayName());
+        if (s.getCategory() != null) map.put("category", s.getCategory());
+        if (s.getDescription() != null) map.put("description", s.getDescription());
+        if (s.getPathTemplate() != null) map.put("pathTemplate", s.getPathTemplate());
+        if (s.getHttpMethod() != null) map.put("httpMethod", s.getHttpMethod());
+        if (s.getLanguage() != null) map.put("language", s.getLanguage());
+        if (s.getJavaCode() != null) map.put("javaCode", s.getJavaCode());
+        if (s.getStoreResultToProperty() != null) map.put("storeResultToProperty", s.getStoreResultToProperty());
+        if (s.getOutputType() != null) map.put("outputType", s.getOutputType());
+        if (s.getParametersSchema() != null && !s.getParametersSchema().isEmpty()) map.put("parametersSchema", s.getParametersSchema());
+        if (s.getOutputSchema() != null && !s.getOutputSchema().isEmpty()) map.put("outputSchema", s.getOutputSchema());
+        if (s.getDefaultHeaders() != null && !s.getDefaultHeaders().isEmpty()) map.put("defaultHeaders", s.getDefaultHeaders());
+        return map;
     }
 
     private List<String> deserializeStringList(String json) {

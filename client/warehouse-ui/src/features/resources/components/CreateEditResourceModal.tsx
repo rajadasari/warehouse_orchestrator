@@ -37,12 +37,12 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
   const [formName, setFormName] = useState<string>('');
   const [formDescription, setFormDescription] = useState<string>('');
   const [formApplication, setFormApplication] = useState<string>('WMS');
-  const [formProtocol, setFormProtocol] = useState<string>('http');
-  const [formHost, setFormHost] = useState<string>('127.0.0.1');
-  const [formPort, setFormPort] = useState<number>(8080);
+  const [formProtocol, setFormProtocol] = useState<string>('');
+  const [formHost, setFormHost] = useState<string>('');
+  const [formPort, setFormPort] = useState<number | ''>('');
   const [formDocumentationUrl, setFormDocumentationUrl] = useState<string>('');
-  const [formType, setFormType] = useState<string>('REST_GENERIC');
-  const [formCategory, setFormCategory] = useState<string>('SOFTWARE');
+  const [formType, setFormType] = useState<string>('PHYSICAL_ASSET');
+  const [formCategory, setFormCategory] = useState<string>('GENERAL');
   const [formTemplateCode, setFormTemplateCode] = useState<string>('REST_API_GENERIC');
   const [formStatus, setFormStatus] = useState<string>('ACTIVE');
 
@@ -102,7 +102,7 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
       setFormPort(initialData.port || 8080);
       setFormDocumentationUrl(initialData.documentationUrl || '');
       setFormType(initialData.type || 'REST_GENERIC');
-      setFormCategory(initialData.category || 'SOFTWARE');
+      setFormCategory(initialData.category || 'GENERAL');
       setFormTemplateCode(initialData.templateCode || '');
       setFormStatus(initialData.status || 'ACTIVE');
       setTemplateProps(initialData.templateProperties || {});
@@ -165,7 +165,7 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
       setFormPort(8080);
       setFormDocumentationUrl('/docs/apps/generic-rest.html');
       setFormType(defaultType);
-      setFormCategory('SOFTWARE');
+      setFormCategory('GENERAL');
       setFormTemplateCode('REST_API_GENERIC');
       setFormStatus('ACTIVE');
       setTemplateProps({});
@@ -191,7 +191,7 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
 
     const tpl = availableTemplates.find(t => t.templateCode === code);
     if (tpl) {
-      setFormCategory(tpl.category);
+      setFormCategory(tpl.category || 'GENERAL');
       setFormType(tpl.resourceType);
       if (!formName) setFormName(tpl.templateName);
       if (!formDescription && tpl.description) setFormDescription(tpl.description);
@@ -220,10 +220,11 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
 
   // Live Synthesized Base URL
   const synthesizedBaseUrl = useMemo(() => {
+    if (!formProtocol && !formHost) return 'Digital Twin (Pure State & Methods - No External Socket)';
     const p = formProtocol.trim().toLowerCase() || 'http';
-    const h = formHost.trim() || '127.0.0.1';
-    const portNum = Number(formPort) || 8080;
-    return `${p}://${h}:${portNum}`;
+    const h = formHost.trim() || 'localhost';
+    const portPart = formPort && Number(formPort) !== 80 && Number(formPort) !== 443 ? `:${formPort}` : '';
+    return `${p}://${h}${portPart}`;
   }, [formProtocol, formHost, formPort]);
 
   // Live Auth Payload Preview for Software
@@ -355,12 +356,12 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
         name: formName.trim(),
         description: formDescription.trim() || undefined,
         application: formApplication.trim() || 'WMS',
-        protocol: formProtocol.trim().toLowerCase(),
-        host: formHost.trim(),
-        port: Number(formPort) || 8080,
+        protocol: formProtocol.trim() ? formProtocol.trim().toLowerCase() : undefined,
+        host: formHost.trim() || undefined,
+        port: formPort ? Number(formPort) : undefined,
         documentationUrl: formDocumentationUrl.trim() || undefined,
         type: formType.trim().toUpperCase(),
-        category: formCategory.trim().toUpperCase(),
+        category: (formCategory || 'GENERAL').trim().toUpperCase(),
         templateCode: formTemplateCode.trim() || undefined,
         status: formStatus.trim().toUpperCase(),
         ip: formHost.trim(),
@@ -568,6 +569,7 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
                   minHeight: '48px'
                 }}
               >
+                <option value="">None (Twin)</option>
                 <option value="http">http://</option>
                 <option value="https">https://</option>
               </select>
@@ -575,12 +577,12 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
 
             <div>
               <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
-                Host / IP Address *
+                Host / IP Address {formProtocol ? '*' : '(Optional)'}
               </label>
               <div style={{ position: 'relative' }}>
                 <input
                   type="text"
-                  required
+                  required={Boolean(formProtocol)}
                   placeholder="127.0.0.1 or api.company.internal"
                   value={formHost}
                   onChange={(e) => handleHostChange(e.target.value)}
@@ -718,7 +720,12 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
                 boxSizing: 'border-box'
               }}
             >
+              <option value="GENERAL">GENERAL</option>
+              <option value="PHYSICAL">PHYSICAL</option>
               <option value="SOFTWARE">SOFTWARE</option>
+              <option value="LOGICAL">LOGICAL</option>
+              <option value="VIRTUAL">VIRTUAL</option>
+              <option value="CONTROLLER">CONTROLLER</option>
               <option value="DEVICE">DEVICE</option>
               <option value="HARDWARE">HARDWARE</option>
             </select>

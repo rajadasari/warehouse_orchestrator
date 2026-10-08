@@ -39,6 +39,41 @@ public class OperationalGraph {
         return removed;
     }
 
+    public synchronized boolean removeNode(ResourceId nodeId) {
+        if (nodeId == null) return false;
+        boolean modified = false;
+
+        Set<RelationshipEdge> out = outgoingEdges.remove(nodeId);
+        if (out != null && !out.isEmpty()) {
+            for (RelationshipEdge edge : out) {
+                Set<RelationshipEdge> in = incomingEdges.get(edge.targetId());
+                if (in != null) {
+                    in.remove(edge);
+                    if (in.isEmpty()) {
+                        incomingEdges.remove(edge.targetId());
+                    }
+                }
+            }
+            modified = true;
+        }
+
+        Set<RelationshipEdge> in = incomingEdges.remove(nodeId);
+        if (in != null && !in.isEmpty()) {
+            for (RelationshipEdge edge : in) {
+                Set<RelationshipEdge> o = outgoingEdges.get(edge.sourceId());
+                if (o != null) {
+                    o.remove(edge);
+                    if (o.isEmpty()) {
+                        outgoingEdges.remove(edge.sourceId());
+                    }
+                }
+            }
+            modified = true;
+        }
+
+        return modified;
+    }
+
     public Set<RelationshipEdge> getOutgoingEdges(ResourceId sourceId) {
         Set<RelationshipEdge> edges = outgoingEdges.get(sourceId);
         return edges != null ? Collections.unmodifiableSet(edges) : Set.of();

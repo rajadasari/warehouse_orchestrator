@@ -9,10 +9,7 @@ import {
   ArrowRight,
   Sliders,
   Globe,
-  Key,
-  ShieldCheck,
-  ChevronDown,
-  ChevronUp
+  Key
 } from 'lucide-react';
 import { PropertySchemaItem, ResourceTemplateItem } from '../../../services/resourceTemplateService';
 import { Badge } from '../../../components/common/Badge';
@@ -41,17 +38,6 @@ export interface CustomPropertyRow {
   useForAuth?: boolean;
 }
 
-export const TOKEN_RESPONSE_FIELD_PRESETS = [
-  { label: 'accessToken (Standard CamelCase)', value: 'accessToken' },
-  { label: 'access_token (OAuth2 SnakeCase)', value: 'access_token' },
-  { label: 'token (Simple REST Response)', value: 'token' },
-  { label: 'jwt (JSON Web Token)', value: 'jwt' },
-  { label: 'id_token (OpenID Connect)', value: 'id_token' },
-  { label: 'data.token (Nested Data Object)', value: 'data.token' },
-  { label: 'data.accessToken (Nested Object)', value: 'data.accessToken' },
-  { label: 'Custom Property Name...', value: '__CUSTOM__' },
-] as const;
-
 export interface Step2PropertiesProps {
   selectedTemplate: ResourceTemplateItem | null;
   category?: string;
@@ -61,10 +47,6 @@ export interface Step2PropertiesProps {
   onAddCustomProperty: () => void;
   onUpdateCustomProperty: (id: string, updates: Partial<CustomPropertyRow>) => void;
   onRemoveCustomProperty: (id: string) => void;
-  tokenPath?: string;
-  onChangeTokenPath?: (val: string) => void;
-  tokenResponseField?: string;
-  onChangeTokenResponseField?: (val: string) => void;
   inheritedAuthKeys?: string[];
   onToggleInheritedAuth?: (key: string) => void;
   onBack: () => void;
@@ -80,21 +62,12 @@ export const Step2Properties: React.FC<Step2PropertiesProps> = ({
   onAddCustomProperty,
   onUpdateCustomProperty,
   onRemoveCustomProperty,
-  tokenPath = '',
-  onChangeTokenPath,
-  tokenResponseField = '',
-  onChangeTokenResponseField,
   inheritedAuthKeys = [],
   onToggleInheritedAuth,
   onBack,
   onNext
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [isTokenPanelExpanded, setIsTokenPanelExpanded] = useState(false);
-  const [isCustomTokenField, setIsCustomTokenField] = useState(
-    () => !TOKEN_RESPONSE_FIELD_PRESETS.some(p => p.value !== '__CUSTOM__' && p.value === tokenResponseField)
-  );
-  const [customTokenFieldValue, setCustomTokenFieldValue] = useState(tokenResponseField);
   const [inheritedSecretVisibility, setInheritedSecretVisibility] = useState<Record<string, boolean>>({});
 
   const toggleInheritedSecret = (key: string) => {
@@ -128,24 +101,8 @@ export const Step2Properties: React.FC<Step2PropertiesProps> = ({
       });
     }
 
-    // Also include any inheritedValues if template is active or inherited values exist
-    if ((selectedTemplate || Object.keys(inheritedValues).length > 0) && inheritedValues) {
-      Object.entries(inheritedValues).forEach(([k, v]) => {
-        if (!existingKeys.has(k) && k !== 'properties' && k !== 'tokenPath' && k !== 'tokenResponseField') {
-          existingKeys.add(k);
-          schema.push({
-            key: k,
-            label: k,
-            type: typeof v === 'number' ? 'INTEGER' : typeof v === 'boolean' ? 'BOOLEAN' : 'STRING',
-            defaultValue: v,
-            description: 'Template attribute'
-          });
-        }
-      });
-    }
-
     return schema;
-  }, [selectedTemplate, inheritedValues]);
+  }, [selectedTemplate]);
 
   // Filter properties by search query
   const filteredSchema = useMemo(() => {
@@ -183,21 +140,13 @@ export const Step2Properties: React.FC<Step2PropertiesProps> = ({
 
   const { host, port, protocol } = extractConnectionCoordinates(unifiedProperties, selectedTemplate);
   const syntheticEndpoint = computeSyntheticEndpoint(host, port, protocol);
+  const isStandaloneTwin = !protocol || !host;
 
   // Count active auth properties
   const activeAuthCount = useMemo(() => {
     const customAuth = customProperties.filter(c => c.useForAuth && c.key.trim()).length;
     return customAuth + inheritedAuthKeys.length;
   }, [customProperties, inheritedAuthKeys]);
-
-  const handleSelectTokenPreset = (val: string) => {
-    if (val === '__CUSTOM__') {
-      setIsCustomTokenField(true);
-    } else {
-      setIsCustomTokenField(false);
-      onChangeTokenResponseField?.(val);
-    }
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -275,152 +224,19 @@ export const Step2Properties: React.FC<Step2PropertiesProps> = ({
           fontSize: '12px'
         }}
       >
-        <Globe size={15} color="#38BDF8" />
-        <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>Live Resolved Endpoint:</span>
-        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: host ? 'var(--text-primary)' : 'var(--text-disabled)' }}>
+        <Globe size={15} color={isStandaloneTwin ? '#10B981' : '#38BDF8'} />
+        <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>Live Ingestion Status:</span>
+        <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--text-primary)' }}>
           {syntheticEndpoint}
         </span>
+        {isStandaloneTwin && (
+          <Badge variant="success" style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10B981', marginLeft: 'auto' }}>
+            Pure Digital Twin (Zero Sockets)
+          </Badge>
+        )}
       </div>
 
-      {/* 2. Authentication & Token Provisioning Panel (Rendered only for Software / REST Endpoints) */}
-      {isSoftware && (
-        <div
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            border: '1px solid var(--border-default)',
-            borderRadius: '8px',
-            overflow: 'hidden'
-          }}
-        >
-          <div
-            onClick={() => setIsTokenPanelExpanded(!isTokenPanelExpanded)}
-            style={{
-              padding: '14px 16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              backgroundColor: isTokenPanelExpanded ? 'var(--bg-surface-subtle)' : 'transparent',
-              userSelect: 'none'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Key size={16} color="#F59E0B" />
-              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                Authentication & Token Provisioning
-              </span>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                (Optional / Software & Gateway REST Endpoints)
-              </span>
-              {activeAuthCount > 0 && (
-                <Badge variant="warning" style={{ fontSize: '10px', padding: '1px 6px' }}>
-                  {activeAuthCount} Auth Keys Active
-                </Badge>
-              )}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '11px', color: '#10B981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <ShieldCheck size={13} />
-                Auto-refresh TokenManager
-              </span>
-              {isTokenPanelExpanded ? <ChevronUp size={16} color="var(--text-secondary)" /> : <ChevronDown size={16} color="var(--text-secondary)" />}
-            </div>
-          </div>
-
-          {isTokenPanelExpanded && (
-            <div style={{ padding: '16px', borderTop: '1px solid var(--border-default)' }}>
-              <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                Configure token acquisition parameters. Mark properties below with <strong>AUTH</strong> to include them in the authentication payload when acquiring Bearer tokens.
-              </p>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
-                {/* Token Path */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    Token Endpoint Path
-                  </label>
-                  <input
-                    type="text"
-                    value={tokenPath}
-                    onChange={e => onChangeTokenPath?.(e.target.value)}
-                    placeholder="/api/authentication or /oauth/token"
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid var(--border-default)',
-                      backgroundColor: 'var(--bg-surface-subtle)',
-                      color: 'var(--text-primary)',
-                      fontFamily: 'monospace',
-                      fontSize: '12px',
-                      outline: 'none'
-                    }}
-                  />
-                  <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>
-                    Path on host invoked to obtain Bearer access token
-                  </span>
-                </div>
-
-                {/* Expected Response Token Property Name (Enum + Custom) */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    Expected Response Token Property Name
-                  </label>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <select
-                      value={isCustomTokenField ? '__CUSTOM__' : tokenResponseField}
-                      onChange={e => handleSelectTokenPreset(e.target.value)}
-                      style={{
-                        padding: '8px 10px',
-                        borderRadius: '4px',
-                        border: '1px solid var(--border-default)',
-                        backgroundColor: 'var(--bg-surface-subtle)',
-                        color: 'var(--text-primary)',
-                        fontSize: '12px',
-                        outline: 'none',
-                        flex: isCustomTokenField ? '0 0 160px' : '1'
-                      }}
-                    >
-                      {TOKEN_RESPONSE_FIELD_PRESETS.map(preset => (
-                        <option key={preset.value} value={preset.value}>
-                          {preset.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    {isCustomTokenField && (
-                      <input
-                        type="text"
-                        value={customTokenFieldValue}
-                        onChange={e => {
-                          setCustomTokenFieldValue(e.target.value);
-                          onChangeTokenResponseField?.(e.target.value);
-                        }}
-                        placeholder="e.g. data.auth_token"
-                        style={{
-                          padding: '8px 10px',
-                          borderRadius: '4px',
-                          border: '1px solid var(--border-default)',
-                          backgroundColor: 'var(--bg-surface-subtle)',
-                          color: 'var(--text-primary)',
-                          fontFamily: 'monospace',
-                          fontSize: '12px',
-                          outline: 'none',
-                          flex: 1
-                        }}
-                      />
-                    )}
-                  </div>
-                  <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>
-                    JSON key in token response extracted by backend <code style={{ color: '#38BDF8' }}>TokenManager</code>
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 3. Archetype Inherited Properties Table (Rendered only if template is present) */}
+      {/* 2. Archetype Inherited Properties Table (Rendered only if template is present) */}
       {propertySchema.length > 0 && (
         <div
           style={{

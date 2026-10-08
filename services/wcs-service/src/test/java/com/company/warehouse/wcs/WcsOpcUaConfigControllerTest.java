@@ -5,7 +5,6 @@ import com.company.warehouse.wcs.api.dto.*;
 import com.company.warehouse.wcs.business.service.WcsOpcUaConfigService;
 import com.company.warehouse.wcs.data.entity.*;
 import com.company.warehouse.wcs.data.repository.*;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,26 +30,17 @@ class WcsOpcUaConfigControllerTest {
     private OpcUaTagMappingRepository tagRepository;
     @Mock
     private OpcUaTagGroupRepository groupRepository;
-    @Mock
-    private OpcUaHandshakeFlowRepository flowRepository;
-    @Mock
-    private OpcUaStationTemplateRepository templateRepository;
 
     private WcsOpcUaConfigService configService;
     private WcsOpcUaConfigController controller;
-    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper();
         configService = new WcsOpcUaConfigService(
                 clientRepository,
                 serverRepository,
                 tagRepository,
-                groupRepository,
-                flowRepository,
-                templateRepository,
-                objectMapper
+                groupRepository
         );
         controller = new WcsOpcUaConfigController(configService);
     }

@@ -16,6 +16,7 @@ import com.company.warehouse.wes.business.spi.wms.model.WmsReserveResult;
 import com.company.warehouse.wes.data.entity.ApiIntegrationMappingEntity;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -102,7 +103,7 @@ public class WmsRestAdapter implements WmsIntegrationSpi {
                     .header("X-Target-Resource-Id", targetResId)
                     .header("X-Idempotency-Key", "PRE-ANNOUNCE-" + command.getPalletLpn());
 
-            dynamicHeaders.forEach(postSpec::header);
+            applyHeadersAndContentType(postSpec, dynamicHeaders);
 
             JsonNode response = postSpec
                     .body(requestBody)
@@ -171,7 +172,7 @@ public class WmsRestAdapter implements WmsIntegrationSpi {
                     .header("X-Target-Resource-Id", targetResId)
                     .header("X-Idempotency-Key", "ORD-CREATE-" + command.getClientOrderRef());
 
-            dynamicHeaders.forEach(postSpec::header);
+            applyHeadersAndContentType(postSpec, dynamicHeaders);
 
             JsonNode response = postSpec
                     .body(requestBody)
@@ -235,7 +236,7 @@ public class WmsRestAdapter implements WmsIntegrationSpi {
                     .header("X-Target-Resource-Id", targetResId)
                     .header("X-Idempotency-Key", "ORD-RES-" + command.getWmsOrderId() + "-" + command.getPalletLpn());
 
-            dynamicHeaders.forEach(postSpec::header);
+            applyHeadersAndContentType(postSpec, dynamicHeaders);
 
             JsonNode response = postSpec
                     .body(requestBody)
@@ -303,7 +304,7 @@ public class WmsRestAdapter implements WmsIntegrationSpi {
                     .header("X-Target-Resource-Id", targetResId)
                     .header("X-Idempotency-Key", "ORD-OUT-" + command.getWmsOrderId());
 
-            dynamicHeaders.forEach(postSpec::header);
+            applyHeadersAndContentType(postSpec, dynamicHeaders);
 
             JsonNode response = postSpec
                     .body(requestBody)
@@ -372,5 +373,16 @@ public class WmsRestAdapter implements WmsIntegrationSpi {
 
         context.put("token", activeToken != null ? activeToken : "");
         return context;
+    }
+
+    private void applyHeadersAndContentType(RestClient.RequestBodySpec spec, Map<String, String> dynamicHeaders) {
+        if (dynamicHeaders != null) {
+            dynamicHeaders.forEach(spec::header);
+        }
+        boolean hasContentType = dynamicHeaders != null && dynamicHeaders.keySet().stream()
+                .anyMatch(h -> h.equalsIgnoreCase("Content-Type"));
+        if (!hasContentType) {
+            spec.contentType(MediaType.APPLICATION_JSON);
+        }
     }
 }

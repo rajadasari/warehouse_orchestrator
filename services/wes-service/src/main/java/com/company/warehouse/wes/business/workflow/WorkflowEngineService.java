@@ -44,6 +44,7 @@ public class WorkflowEngineService {
     private final WorkflowNodeRegistry nodeRegistry;
     private final WorkflowEdgeRouter edgeRouter;
     private final WorkflowStructuredLogger structuredLogger;
+    private final com.company.warehouse.wes.business.workflow.validation.WorkflowGraphValidator graphValidator;
     private final ObjectMapper objectMapper;
 
     private final AtomicReference<WorkflowExecutionMode> executionMode =
@@ -82,6 +83,13 @@ public class WorkflowEngineService {
 
     @Transactional
     public WorkflowDefinitionDto saveDefinition(WorkflowDefinitionDto dto) {
+        if (dto.getCanvasGraph() != null) {
+            List<String> validationErrors = graphValidator.validate(dto.getCanvasGraph());
+            if (!validationErrors.isEmpty()) {
+                throw new IllegalArgumentException("Workflow validation failed: " + String.join("; ", validationErrors));
+            }
+        }
+
         Optional<WorkflowDefinitionEntity> existingOpt = definitionRepository.findByWorkflowCode(dto.getWorkflowCode());
         WorkflowDefinitionEntity entity;
 
@@ -308,9 +316,11 @@ public class WorkflowEngineService {
         }
 
         if ("TERMINATOR".equalsIgnoreCase(nodeType)) {
-            instance.setStatus("COMPLETED");
+            String completionStatus = String.valueOf(nodeConfig.getOrDefault("completionStatus", "COMPLETED")).trim().toUpperCase();
+            instance.setStatus(completionStatus.isEmpty() ? "COMPLETED" : completionStatus);
             instanceRepository.save(instance);
-            log.info("Workflow instance '{}' reached TERMINATOR node '{}'", instance.getId(), nextNodeId);
+            log.info("Workflow instance '{}' reached TERMINATOR node '{}' with status '{}'",
+                    instance.getId(), nextNodeId, instance.getStatus());
             return;
         }
 

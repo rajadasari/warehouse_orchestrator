@@ -64,7 +64,10 @@ public class LiveOpcUaChannelDriver {
      * Resolves or creates an active, connected Milo OpcUaClient for the target channel.
      */
     public synchronized OpcUaClient getConnectedClient(NetworkDeviceChannelEntity channel) throws Exception {
-        String endpointUrl = channel.getEndpointUrl().trim();
+        String rawEndpoint = channel.getEndpointUrl().trim();
+        String endpointUrl = rawEndpoint.contains("://0.0.0.0:")
+                ? rawEndpoint.replace("://0.0.0.0:", "://127.0.0.1:")
+                : rawEndpoint;
         OpcUaClient existing = clientCache.get(endpointUrl);
         if (existing != null) {
             return existing;
@@ -88,7 +91,8 @@ public class LiveOpcUaChannelDriver {
                 endpointUrl,
                 endpoints -> endpoints.stream()
                         .filter(e -> e.getSecurityPolicyUri().equals(chosenPolicy.getUri()))
-                        .findFirst(),
+                        .findFirst()
+                        .or(() -> endpoints.stream().findFirst()),
                 configBuilder -> configBuilder
                         .setApplicationName(LocalizedText.english("Warehouse-Orchestrator-WCS"))
                         .setApplicationUri("urn:company:warehouse:wcs:" + channel.getChannelCode())
@@ -104,8 +108,10 @@ public class LiveOpcUaChannelDriver {
     }
 
     /**
-     * Browses the real OPC-UA address space starting from ObjectsFolder (ns=0;i=85).
-     * Traverses custom Objects (e.g. MyDevice) and discovers real Variables (e.g. Temperature, InputValue, OutputValue).
+     * Browses the real OPC-UA address space starting from ObjectsFolder (ns=0;i=85)
+     * and TypesFolder (ns=0;i=86) for UDT definitions.
+     * Traverses custom Objects, ObjectTypes, and discovers real Variables at any depth.
+     * Uses continuation-point pagination to handle large namespaces (IEC 62541 compliant).
      */
     public List<NetworkDeviceTagEntity> browseLiveAddressSpace(NetworkDeviceChannelEntity channel) {
         List<NetworkDeviceTagEntity> discoveredTags = new ArrayList<>();
@@ -113,11 +119,13 @@ public class LiveOpcUaChannelDriver {
 
         try {
             OpcUaClient client = getConnectedClient(channel);
-            NodeId objectsFolder = Identifiers.ObjectsFolder;
-
-            // Industrial recursive traversal: discovers nested UDT structures (e.g. MyDevice / Motor1 / ...)
             Set<NodeId> visitedNodes = new HashSet<>();
-            browseNodeRecursive(client, channel, objectsFolder, "", 0, visitedNodes, discoveredTags);
+
+            // Browse live device instances under ObjectsFolder (ns=0;i=85)
+            browseNodeRecursive(client, channel, Identifiers.ObjectsFolder, "", 0, visitedNodes, discoveredTags);
+
+            // Batch-resolve actual DataType attributes for discovered leaf Variable tags
+            batchResolveDataTypes(client, discoveredTags);
 
             log.info("Live OPC-UA Browse for channel '{}' discovered {} real tags (including UDTs) from '{}'",
                     channel.getChannelCode(), discoveredTags.size(), endpointUrl);
@@ -131,7 +139,7 @@ public class LiveOpcUaChannelDriver {
         return discoveredTags;
     }
 
-    private static final int MAX_BROWSE_DEPTH = 6;
+    private static final int MAX_BROWSE_DEPTH = 16;
 
     private void browseNodeRecursive(
             OpcUaClient client,
@@ -148,28 +156,90 @@ public class LiveOpcUaChannelDriver {
 
         try {
             List<ReferenceDescription> refs = browseNode(client, parentNodeId);
-            for (ReferenceDescription ref : refs) {
-                String name = ref.getBrowseName().getName();
-                NodeClass nodeClass = ref.getNodeClass();
 
-                // Skip internal OPC UA server diagnostic objects
-                if ("Server".equalsIgnoreCase(name) || "Aliases".equalsIgnoreCase(name)) {
+            // Classify children: separate Object/ObjectType from Variable/VariableType
+            List<ReferenceDescription> objectRefs = new ArrayList<>();
+            List<ReferenceDescription> variableRefs = new ArrayList<>();
+            for (ReferenceDescription ref : refs) {
+                NodeClass nodeClass = ref.getNodeClass();
+                Optional<NodeId> optId = ref.getNodeId().toNodeId(client.getNamespaceTable());
+                if (optId.isEmpty()) continue;
+                if (optId.get().equals(Identifiers.Server)) continue;
+                // Skip namespace 0 system folders (like Aliases) unless it is ObjectsFolder
+                if (optId.get().getNamespaceIndex().intValue() == 0 && !optId.get().equals(Identifiers.ObjectsFolder)) {
                     continue;
                 }
 
-                Optional<NodeId> optId = ref.getNodeId().toNodeId(client.getNamespaceTable());
-                if (optId.isEmpty()) continue;
-                NodeId childNodeId = optId.get();
-
-                String newPath = currentPath.isEmpty() ? name : (currentPath + "/" + name);
-
-                if (nodeClass == NodeClass.Object) {
-                    // Recurse into child Object (UDT structure, device sub-tree, or component)
-                    browseNodeRecursive(client, channel, childNodeId, newPath, currentDepth + 1, visited, outList);
-                } else if (nodeClass == NodeClass.Variable) {
-                    String folder = currentPath.isEmpty() ? "Root" : currentPath;
-                    processVariableNode(client, channel, ref, folder, outList);
+                if (nodeClass == NodeClass.Object || nodeClass == NodeClass.ObjectType) {
+                    objectRefs.add(ref);
+                } else if (nodeClass == NodeClass.Variable || nodeClass == NodeClass.VariableType) {
+                    variableRefs.add(ref);
                 }
+            }
+
+            // Detect UDT pattern: an Object node whose children include Variables is a UDT container
+            for (ReferenceDescription objRef : objectRefs) {
+                Optional<NodeId> optObjId = objRef.getNodeId().toNodeId(client.getNamespaceTable());
+                if (optObjId.isEmpty()) continue;
+                NodeId objNodeId = optObjId.get();
+                String objName = objRef.getBrowseName().getName();
+                String newObjPath = currentPath.isEmpty() ? objName : (currentPath + "/" + objName);
+
+                // Peek one level below to detect if this Object contains non-system Variable children (UDT)
+                List<ReferenceDescription> childRefs = browseNode(client, objNodeId);
+                boolean hasVariableChildren = childRefs.stream().anyMatch(cr -> {
+                    if (cr.getNodeClass() != NodeClass.Variable && cr.getNodeClass() != NodeClass.VariableType) return false;
+                    String crName = cr.getBrowseName().getName();
+                    return !"Icon".equalsIgnoreCase(crName) && !"NodeVersion".equalsIgnoreCase(crName);
+                });
+                boolean hasObjectChildren = childRefs.stream().anyMatch(cr ->
+                        cr.getNodeClass() == NodeClass.Object || cr.getNodeClass() == NodeClass.ObjectType);
+
+                if (hasVariableChildren && currentDepth > 0) {
+                    // This is a UDT parent: add it as a synthetic parent tag with isUdt=true
+                    String parentNodeIdStr = objNodeId.toParseableString();
+                    String folder = currentPath.isEmpty() ? "Root" : currentPath;
+                    NetworkDeviceTagEntity udtParent = NetworkDeviceTagEntity.builder()
+                            .channelId(channel.getId())
+                            .tagName(objName)
+                            .nodeId(parentNodeIdStr)
+                            .folderPath(folder)
+                            .dataType("UDT")
+                            .quality("GOOD (0x00000000)")
+                            .currentValue("--")
+                            .isWritable(false)
+                            .isSubscribed(false)
+                            .isUdt(true)
+                            .isUdtMember(false)
+                            .memberPath(objName)
+                            .lastUpdated(Instant.now())
+                            .build();
+                    outList.add(udtParent);
+
+                    // Add Variable children as UDT members
+                    for (ReferenceDescription cr : childRefs) {
+                        if (cr.getNodeClass() == NodeClass.Variable || cr.getNodeClass() == NodeClass.VariableType) {
+                            String crName = cr.getBrowseName().getName();
+                            if ("Icon".equalsIgnoreCase(crName) || "NodeVersion".equalsIgnoreCase(crName)) continue;
+                            processVariableNode(client, channel, cr, folder, outList, parentNodeIdStr, objName, currentDepth + 1, visited);
+                        }
+                    }
+                    // Continue recursing into child Objects (nested UDTs or sub-folders)
+                    if (hasObjectChildren) {
+                        browseNodeRecursive(client, channel, objNodeId, newObjPath, currentDepth + 1, visited, outList);
+                    }
+                } else {
+                    // Not a UDT, recurse normally
+                    browseNodeRecursive(client, channel, objNodeId, newObjPath, currentDepth + 1, visited, outList);
+                }
+            }
+
+            // Process standalone Variable nodes (not under a UDT Object)
+            for (ReferenceDescription varRef : variableRefs) {
+                String varName = varRef.getBrowseName().getName();
+                if ("Icon".equalsIgnoreCase(varName) || "NodeVersion".equalsIgnoreCase(varName)) continue;
+                String folder = currentPath.isEmpty() ? "Root" : currentPath;
+                processVariableNode(client, channel, varRef, folder, outList, null, null, currentDepth, visited);
             }
         } catch (Exception ex) {
             log.warn("Error browsing node {} at path '{}': {}", parentNodeId, currentPath, ex.getMessage());
@@ -445,7 +515,8 @@ public class LiveOpcUaChannelDriver {
                             (item, id) -> item.setValueConsumer((monitoredItem, dataValue) -> {
                                 NodeId readNodeId = monitoredItem.getReadValueId().getNodeId();
                                 String nodeStr = readNodeId.toParseableString();
-                                Object val = dataValue.getValue() != null ? dataValue.getValue().getValue() : null;
+                                Object rawVal = dataValue.getValue() != null ? dataValue.getValue().getValue() : null;
+                                Object val = OpcUaValueHelper.sanitizeAndExtractValue(rawVal);
                                 String quality = (dataValue.getStatusCode() != null && dataValue.getStatusCode().isGood())
                                         ? "GOOD (0x00000000)"
                                         : (dataValue.getStatusCode() != null ? dataValue.getStatusCode().toString() : "UNCERTAIN");
@@ -500,19 +571,40 @@ public class LiveOpcUaChannelDriver {
         }
     }
 
+    /**
+     * Browses child references of a parent node with full continuation-point pagination.
+     * Handles servers that return partial result sets (common with 1000+ tags per folder).
+     */
     private List<ReferenceDescription> browseNode(OpcUaClient client, NodeId parentNodeId) throws Exception {
         BrowseDescription browseDesc = new BrowseDescription(
                 parentNodeId,
                 BrowseDirection.Forward,
                 Identifiers.HierarchicalReferences,
                 true,
-                uint(NodeClass.Object.getValue() | NodeClass.Variable.getValue()),
+                uint(NodeClass.Object.getValue() | NodeClass.Variable.getValue()
+                     | NodeClass.ObjectType.getValue() | NodeClass.VariableType.getValue()
+                     | NodeClass.Method.getValue()),
                 uint(BrowseResultMask.All.getValue())
         );
 
         BrowseResult result = client.browse(browseDesc).get(4, TimeUnit.SECONDS);
-        ReferenceDescription[] refs = result.getReferences();
-        return refs != null ? Arrays.asList(refs) : Collections.emptyList();
+        List<ReferenceDescription> allRefs = new ArrayList<>();
+        if (result.getReferences() != null) {
+            allRefs.addAll(Arrays.asList(result.getReferences()));
+        }
+
+        // IEC 62541 continuation point pagination: loop until server signals completion
+        ByteString continuationPoint = result.getContinuationPoint();
+        while (continuationPoint != null && !continuationPoint.isNull()) {
+            BrowseResult nextResult = client.browseNext(false, continuationPoint)
+                    .get(4, TimeUnit.SECONDS);
+            if (nextResult.getReferences() != null) {
+                allRefs.addAll(Arrays.asList(nextResult.getReferences()));
+            }
+            continuationPoint = nextResult.getContinuationPoint();
+        }
+
+        return allRefs;
     }
 
     private void processVariableNode(
@@ -520,34 +612,151 @@ public class LiveOpcUaChannelDriver {
             NetworkDeviceChannelEntity channel,
             ReferenceDescription varRef,
             String folderName,
-            List<NetworkDeviceTagEntity> outList
+            List<NetworkDeviceTagEntity> outList,
+            String parentNodeIdStr,
+            String parentName,
+            int currentDepth,
+            Set<NodeId> visited
     ) {
         try {
             Optional<NodeId> optVarId = varRef.getNodeId().toNodeId(client.getNamespaceTable());
             if (optVarId.isEmpty()) return;
             NodeId varNodeId = optVarId.get();
 
-            String tagName = varRef.getBrowseName().getName();
+            String rawName = varRef.getBrowseName().getName();
+            if ("Icon".equalsIgnoreCase(rawName) || "NodeVersion".equalsIgnoreCase(rawName)) return;
             String nodeIdStr = varNodeId.toParseableString();
+            boolean isMember = parentNodeIdStr != null && !parentNodeIdStr.isBlank();
+
+            String fullTagName;
+            String memberPath;
+            if (isMember) {
+                // Bracket notation if rawName is an array index (e.g. "0" -> parent[0])
+                if (rawName.matches("^\\d+$")) {
+                    fullTagName = parentName + "[" + rawName + "]";
+                    memberPath = "[" + rawName + "]";
+                } else if (rawName.startsWith("[")) {
+                    fullTagName = parentName + rawName;
+                    memberPath = rawName;
+                } else {
+                    fullTagName = parentName + "." + rawName;
+                    memberPath = rawName;
+                }
+            } else {
+                fullTagName = rawName;
+                memberPath = rawName;
+            }
+
+            // Peek one level below to detect if this Variable node itself has child Variables (complex UDT or array)
+            List<ReferenceDescription> childRefs = (currentDepth < MAX_BROWSE_DEPTH && visited.add(varNodeId))
+                    ? browseNode(client, varNodeId)
+                    : Collections.emptyList();
+
+            boolean hasChildVariables = childRefs.stream().anyMatch(cr -> {
+                if (cr.getNodeClass() != NodeClass.Variable && cr.getNodeClass() != NodeClass.VariableType) return false;
+                String crName = cr.getBrowseName().getName();
+                return !"Icon".equalsIgnoreCase(crName) && !"NodeVersion".equalsIgnoreCase(crName);
+            });
 
             // Industrial standard: Browse discovers structural metadata only.
-            // Zero read requests sent to the server; subscription push events populate live values.
+            // DataType is resolved in a single batch read after the full browse completes.
             NetworkDeviceTagEntity tagEntity = NetworkDeviceTagEntity.builder()
                     .channelId(channel.getId())
-                    .tagName(tagName)
+                    .tagName(fullTagName)
                     .nodeId(nodeIdStr)
                     .folderPath(folderName)
-                    .dataType("Variant")
+                    .dataType(hasChildVariables ? "UDT" : "Variant")
                     .quality("GOOD (0x00000000)")
                     .currentValue("--")
                     .isWritable(true)
                     .isSubscribed(false)
+                    .isUdt(hasChildVariables)
+                    .isUdtMember(isMember)
+                    .memberPath(memberPath)
                     .lastUpdated(Instant.now())
                     .build();
+            tagEntity.setParentNodeId(parentNodeIdStr);
 
             outList.add(tagEntity);
+
+            if (hasChildVariables) {
+                for (ReferenceDescription cr : childRefs) {
+                    if (cr.getNodeClass() == NodeClass.Variable || cr.getNodeClass() == NodeClass.VariableType) {
+                        String crName = cr.getBrowseName().getName();
+                        if ("Icon".equalsIgnoreCase(crName) || "NodeVersion".equalsIgnoreCase(crName)) continue;
+                        processVariableNode(client, channel, cr, folderName, outList, nodeIdStr, fullTagName, currentDepth + 1, visited);
+                    }
+                }
+            }
         } catch (Exception ex) {
             log.warn("Error processing variable node: {}", ex.getMessage());
         }
+    }
+
+    /**
+     * Batch-resolves the actual OPC UA DataType attribute for all discovered Variable tags
+     * in a single network round-trip per batch (max 200 per request to stay within server limits).
+     */
+    private void batchResolveDataTypes(OpcUaClient client, List<NetworkDeviceTagEntity> tags) {
+        List<NetworkDeviceTagEntity> variableTags = tags.stream()
+                .filter(t -> !Boolean.TRUE.equals(t.getIsUdt()))
+                .toList();
+        if (variableTags.isEmpty()) return;
+
+        int batchSize = 200;
+        for (int offset = 0; offset < variableTags.size(); offset += batchSize) {
+            int end = Math.min(offset + batchSize, variableTags.size());
+            List<NetworkDeviceTagEntity> batch = variableTags.subList(offset, end);
+
+            List<ReadValueId> readIds = new ArrayList<>(batch.size());
+            for (NetworkDeviceTagEntity tag : batch) {
+                try {
+                    NodeId nid = NodeId.parse(tag.getNodeId());
+                    readIds.add(new ReadValueId(nid, AttributeId.DataType.uid(), null, QualifiedName.NULL_VALUE));
+                } catch (Exception e) {
+                    readIds.add(new ReadValueId(Identifiers.RootFolder, AttributeId.DataType.uid(), null, QualifiedName.NULL_VALUE));
+                }
+            }
+
+            try {
+                var response = client.read(0.0, TimestampsToReturn.Neither, readIds)
+                        .get(5, TimeUnit.SECONDS);
+                DataValue[] results = response.getResults();
+                if (results != null) {
+                    for (int i = 0; i < results.length && i < batch.size(); i++) {
+                        DataValue dv = results[i];
+                        if (dv.getStatusCode().isGood() && dv.getValue().getValue() instanceof NodeId dtNodeId) {
+                            batch.get(i).setDataType(mapDataTypeNodeIdToName(dtNodeId));
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Batch DataType resolution failed for {} tags: {}", batch.size(), e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Maps well-known OPC UA DataType NodeIds to human-readable type names.
+     */
+    private String mapDataTypeNodeIdToName(NodeId dtNodeId) {
+        if (Identifiers.Boolean.equals(dtNodeId)) return "Boolean";
+        if (Identifiers.SByte.equals(dtNodeId)) return "SByte";
+        if (Identifiers.Byte.equals(dtNodeId)) return "Byte";
+        if (Identifiers.Int16.equals(dtNodeId)) return "Int16";
+        if (Identifiers.UInt16.equals(dtNodeId)) return "UInt16";
+        if (Identifiers.Int32.equals(dtNodeId)) return "Int32";
+        if (Identifiers.UInt32.equals(dtNodeId)) return "UInt32";
+        if (Identifiers.Int64.equals(dtNodeId)) return "Int64";
+        if (Identifiers.UInt64.equals(dtNodeId)) return "UInt64";
+        if (Identifiers.Float.equals(dtNodeId)) return "Float";
+        if (Identifiers.Double.equals(dtNodeId)) return "Double";
+        if (Identifiers.String.equals(dtNodeId)) return "String";
+        if (Identifiers.DateTime.equals(dtNodeId)) return "DateTime";
+        if (Identifiers.ByteString.equals(dtNodeId)) return "ByteString";
+        if (Identifiers.NodeId.equals(dtNodeId)) return "NodeId";
+        if (Identifiers.LocalizedText.equals(dtNodeId)) return "LocalizedText";
+        if (Identifiers.QualifiedName.equals(dtNodeId)) return "QualifiedName";
+        return "Variant";
     }
 }

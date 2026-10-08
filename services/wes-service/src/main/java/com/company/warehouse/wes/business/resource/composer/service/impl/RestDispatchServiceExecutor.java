@@ -42,8 +42,7 @@ public class RestDispatchServiceExecutor implements EntityServiceExecutor {
                 return false;
             }
         }
-        return "REST".equalsIgnoreCase(protocol) || "HTTP".equalsIgnoreCase(protocol)
-                || ("SOFTWARE".equalsIgnoreCase(category) && (protocol == null || protocol.isBlank() || "http".equalsIgnoreCase(protocol)));
+        return "REST".equalsIgnoreCase(protocol) || "HTTP".equalsIgnoreCase(protocol) || "HTTPS".equalsIgnoreCase(protocol);
     }
 
     @Override

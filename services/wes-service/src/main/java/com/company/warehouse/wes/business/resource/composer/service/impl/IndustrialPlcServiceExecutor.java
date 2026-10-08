@@ -52,9 +52,15 @@ public class IndustrialPlcServiceExecutor implements EntityServiceExecutor {
     public boolean supports(String serviceName, String protocol, String category) {
         if (serviceName == null) return false;
         String mName = serviceName.trim().toUpperCase();
-        if (SUPPORTED_METHODS.contains(mName)) return true;
-        return "PLC".equalsIgnoreCase(category) || "HARDWARE".equalsIgnoreCase(category) || "EQUIPMENT".equalsIgnoreCase(category)
-                || (protocol != null && (protocol.toLowerCase().contains("opc") || protocol.toLowerCase().contains("modbus") || protocol.toLowerCase().contains("s7")));
+        String p = protocol != null ? protocol.toLowerCase().trim() : "";
+
+        if (p.contains("opc") || p.contains("modbus") || p.contains("s7") || p.contains("profinet") || p.contains("ethernet_ip")) {
+            return true;
+        }
+        if (SUPPORTED_METHODS.contains(mName)) {
+            return !p.contains("rest") && !p.contains("http") && !p.contains("internal") && !p.contains("push") && !p.contains("memory");
+        }
+        return false;
     }
 
     @Override

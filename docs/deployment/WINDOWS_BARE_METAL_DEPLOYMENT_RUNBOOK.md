@@ -24,7 +24,11 @@ D:\release\
 │   ├── asrs-wcs-service-*.jar
 │   └── fleet-service-*.jar
 ├── tools\
-│   └── WinSW-x64.exe           <-- Offline Windows Service Wrapper binary
+│   ├── WinSW-x64.exe           <-- Offline Windows Service Wrapper binary
+│   └── analyzer\               <-- Python Handshake & Station Tag Analysis Engine
+│       ├── handshake_analyzer_server.py
+│       ├── requirements.txt
+│       └── start_analyzer.bat
 ├── dist\                       <-- Production React UI static web assets
 │   ├── index.html
 │   ├── assets\
@@ -38,11 +42,12 @@ D:\release\
 Before executing this runbook, verify on the target Windows machine:
 
 1. **Java 21 LTS installed**: Open PowerShell and run `java -version`. Ensure it outputs OpenJDK 21 64-bit (`JAVA_HOME` added to System PATH).
-2. **PostgreSQL 16 running**: Windows Service `postgresql-x64-16` is `Running` on port `5432`.
-   - Database `warehouse_db` created.
+2. **Python 3.10+ installed**: Open PowerShell and run `python --version` (for Analysis & Waveform Service on port 8095).
+3. **PostgreSQL 16/17 running**: Windows Service `postgresql*` is `Running` on port `5432`.
+   - Database `warehouse_db` created (or existing DB preserved).
    - User `warehouse_app` created with full schema permissions.
-3. **Eclipse Mosquitto running**: Windows Service `mosquitto` is `Running` on port `1883/8883`.
-4. **Administrator Shell**: All PowerShell commands must be executed in an elevated **PowerShell (Run as Administrator)**.
+4. **Eclipse Mosquitto running**: Windows Service `mosquitto` is `Running` on port `1883/8883`.
+5. **Administrator Shell**: All PowerShell commands must be executed in an elevated **PowerShell (Run as Administrator)**.
 
 ---
 

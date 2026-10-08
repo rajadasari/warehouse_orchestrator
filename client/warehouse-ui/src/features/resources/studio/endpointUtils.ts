@@ -1,15 +1,21 @@
 /**
  * Utility for normalizing resource host, port, protocol into a valid synthetic endpoint.
- * Prevents duplicate scheme prefixes such as "rest://http://10.21.38.206:5000".
+ * Protocol is an external gateway concern; digital twins without network sockets
+ * are displayed cleanly without artificial pseudo-protocols.
  */
 export function computeSyntheticEndpoint(
   host: string,
   port?: number | '',
   protocol?: string
 ): string {
-  if (!host || !host.trim()) return 'No host configured yet';
+  const proto = (protocol || '').trim().toLowerCase();
+
+  // Standalone digital twins without external network sockets
+  if (!proto || proto === 'none' || proto === 'internal' || !host || !host.trim()) {
+    return 'Digital Twin (Pure State & Methods - No External Socket)';
+  }
+
   const cleanedHost = host.trim();
-  const proto = (protocol || 'http').trim().toLowerCase();
 
   // If host already contains a scheme (e.g. http://, https://, grpc://, ws://, etc.)
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(cleanedHost)) {
@@ -28,6 +34,10 @@ export function computeSyntheticEndpoint(
     scheme = 'tcp://';
   } else if (proto === 'plc_s7' || proto === 's7') {
     scheme = 's7://';
+  } else if (proto === 'opc_ua' || proto.startsWith('opc')) {
+    scheme = 'opc.tcp://';
+  } else if (proto === 'mqtt' || proto.includes('mqtt')) {
+    scheme = 'mqtt://';
   } else if (proto === 'rest' || proto.startsWith('http')) {
     scheme = 'http://';
   } else {
@@ -69,11 +79,9 @@ export function extractConnectionCoordinates(
   const protoVal =
     props['protocol'] ??
     props['communicationProtocol'] ??
-    template?.communicationProtocol ??
-    template?.defaultProtocol ??
-    'http';
+    props['communicationMethod'] ??
+    '';
   const protocol = String(protoVal).trim();
 
   return { host, port, protocol };
 }
-

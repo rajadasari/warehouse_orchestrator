@@ -20,4 +20,7 @@ public class MethodExecutionResult implements Serializable {
     private Long executionTimeMs;
     private Object data;
     private String error;
+    @Builder.Default
+    private java.util.List<com.company.warehouse.wes.business.resource.compiler.MethodTraceLogEntry> traceLogs = new java.util.ArrayList<>();
+    private java.util.Map<String, Object> updatedProperties;
 }

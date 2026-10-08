@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
+  ChevronDown,
   Users, 
   Moon, 
   Sun, 
@@ -17,7 +18,9 @@ import {
   ChevronRight,
   FileCode,
   Sliders,
-  Radio
+  Radio,
+  Activity,
+  Cpu
 } from 'lucide-react';
 
 interface SideNavBarProps {
@@ -82,6 +85,20 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
   };
 
   const isLight = currentTheme === 'light';
+
+  const [expandedItems, setExpandedItems] = useState<ReadonlySet<string>>(() => new Set<string>());
+
+  const toggleExpanded = (id: string) => {
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   // Navigation structure definition
   const sections: NavSection[] = [
@@ -170,10 +187,33 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
           label: 'WMS Forms',
           icon: <Send size={17} />,
           isActive: (a) => a === 'wms-forms'
+        },
+        {
+          id: 'analysis',
+          label: 'Handshake Analysis',
+          icon: <Activity size={17} />,
+          isActive: (a) => a === 'analysis' || a === 'handshake-analysis' || a === 'analysis-group'
+        },
+        {
+          id: 'station-tags',
+          label: 'Station Tag Timing',
+          icon: <Cpu size={17} />,
+          isActive: (a) => a === 'station-tags'
         }
       ]
     }
   ];
+
+  // Auto-expand the parent group that owns the currently active child route
+  useEffect(() => {
+    const owner = sections
+      .flatMap(s => s.items)
+      .find(i => i.children?.some(c => c.isActive(activeItem)) ?? false);
+    if (owner && !expandedItems.has(owner.id)) {
+      setExpandedItems(prev => new Set(prev).add(owner.id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeItem]);
 
   // Helper for navigation button styling
   const getNavButtonStyle = (active: boolean) => {
@@ -249,7 +289,7 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
       zIndex: 100
     }}>
       {/* Top Header: Brand + Collapse/Expand Button */}
-      <div>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -379,7 +419,22 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
         )}
 
         {/* Navigation Sections */}
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+        <nav
+          aria-label="Primary navigation"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '3px',
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            paddingRight: '2px',
+            paddingBottom: '8px',
+            scrollbarWidth: 'thin',
+            scrollbarColor: isLight ? 'rgba(255, 255, 255, 0.35) transparent' : 'var(--border-default) transparent'
+          }}
+        >
           {sections.map(section => (
             <React.Fragment key={section.title}>
               {/* Section Header or Divider */}
@@ -406,11 +461,21 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
               {section.items.map(item => {
                 const active = item.isActive(activeItem);
                 const hasChildren = Boolean(item.children && item.children.length > 0);
+                const expanded = hasChildren && expandedItems.has(item.id);
+                const handleParentClick = () => {
+                  if (hasChildren && !isCollapsed) {
+                    toggleExpanded(item.id);
+                    return;
+                  }
+                  onSelectNav?.(item.id);
+                };
                 return (
                   <React.Fragment key={item.id}>
                     <button
                       title={isCollapsed ? item.label : undefined}
-                      onClick={() => onSelectNav && onSelectNav(item.id)}
+                      onClick={handleParentClick}
+                      aria-expanded={hasChildren && !isCollapsed ? expanded : undefined}
+                      aria-controls={hasChildren ? `nav-group-${item.id}` : undefined}
                       style={getNavButtonStyle(active)}
                       onMouseEnter={(e) => {
                         if (!active) {
@@ -433,7 +498,19 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
                         </span>
                       )}
 
-                      {!isCollapsed && active && (
+                      {!isCollapsed && hasChildren && (
+                        <span style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          color: getIconColor(active),
+                          transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                          transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}>
+                          <ChevronDown size={15} />
+                        </span>
+                      )}
+
+                      {!isCollapsed && active && !hasChildren && (
                         <span style={{
                           width: '6px',
                           height: '6px',
@@ -446,6 +523,17 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
 
                     {/* Render Child Sub-Items (e.g. Template Definer, Resource Composer) */}
                     {!isCollapsed && hasChildren && item.children && (
+                      <div
+                        id={`nav-group-${item.id}`}
+                        aria-hidden={!expanded}
+                        style={{
+                          display: 'grid',
+                          gridTemplateRows: expanded ? '1fr' : '0fr',
+                          opacity: expanded ? 1 : 0,
+                          transition: 'grid-template-rows 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease'
+                        }}
+                      >
+                      <div style={{ overflow: 'hidden', minHeight: 0 }}>
                       <div style={{
                         display: 'flex',
                         flexDirection: 'column',
@@ -461,7 +549,8 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
                           return (
                             <button
                               key={child.id}
-                              onClick={() => onSelectNav && onSelectNav(child.id)}
+                              tabIndex={expanded ? 0 : -1}
+                              onClick={() => onSelectNav?.(child.id)}
                               style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -504,6 +593,8 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
                           );
                         })}
                       </div>
+                      </div>
+                      </div>
                     )}
                   </React.Fragment>
                 );
@@ -517,6 +608,7 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
       <div style={{
         display: 'flex',
         flexDirection: 'column',
+        flexShrink: 0,
         gap: '8px',
         paddingTop: '12px',
         borderTop: `1px solid ${dividerColor}`

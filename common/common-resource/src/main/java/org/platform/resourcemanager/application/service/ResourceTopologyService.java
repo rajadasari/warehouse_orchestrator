@@ -28,6 +28,10 @@ public class ResourceTopologyService {
         return graph.removeEdge(sourceId, targetId, type);
     }
 
+    public boolean removeNode(ResourceId nodeId) {
+        return graph.removeNode(nodeId);
+    }
+
     public void establishContainment(ResourceId childId, ResourceId parentId) {
         link(childId, parentId, RelationshipType.PART_OF);
     }

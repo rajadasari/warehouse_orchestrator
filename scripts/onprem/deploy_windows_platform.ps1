@@ -170,12 +170,27 @@ if ($DbHost -eq "auto" -or $DbHost -eq "127.0.0.1" -or $DbHost -eq "localhost") 
     }
 }
 
+# 1.8 Verify Python Environment (Analysis & Station Tag Telemetry Service)
+$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+$pythonExe = if ($pythonCmd) { $pythonCmd.Source } else { $null }
+$hasPython = ($pythonExe -ne $null)
+if ($hasPython) {
+    try {
+        $pyVer = & $pythonExe --version 2>&1
+        Write-Success "Python environment detected: $pyVer ($pythonExe)"
+    } catch {
+        Write-Success "Python environment detected: $pythonExe"
+    }
+} else {
+    Write-Warn "Python 3.10+ not found in PATH. Handshake Analysis service (port 8095) will be skipped until Python is available."
+}
+
 # -----------------------------------------------------------------------------
 # PHASE 2: DIRECTORY TREE SETUP
 # -----------------------------------------------------------------------------
 Write-PhaseHeader "PHASE 2" "Create Standard Production Directory Hierarchy"
 
-$subDirs = @("bin", "config", "logs", "service-wrapper", "static-ui", "backups", "certs")
+$subDirs = @("bin", "config", "logs", "service-wrapper", "static-ui", "backups", "certs", "tools\analyzer")
 foreach ($dir in $subDirs) {
     $fullPath = Join-Path $InstallPath $dir
     if (-not (Test-Path $fullPath)) {
@@ -324,7 +339,27 @@ if ($Mode -eq "BuildFromSource") {
     }
 }
 
-Write-Success "All production artifacts staged in $InstallPath\bin and static-ui."
+# Stage Analysis Engine (Python FastAPI)
+$analyzerTarget = Join-Path $InstallPath "tools\analyzer"
+if ($Mode -eq "FromReleasePackage" -and (Test-Path "$ReleasePath\tools\analyzer")) {
+    Copy-Item "$ReleasePath\tools\analyzer\*" $analyzerTarget -Recurse -Force
+    Write-Success "Staged Handshake Analysis Engine from release media."
+} elseif (Test-Path "$repoRoot\release\dcs_logs") {
+    Copy-Item "$repoRoot\release\dcs_logs\*" $analyzerTarget -Recurse -Force
+    Write-Success "Staged Handshake Analysis Engine from source repository."
+}
+
+if ($hasPython -and (Test-Path "$analyzerTarget\requirements.txt")) {
+    Write-Host "Verifying Python dependencies (fastapi, uvicorn, pydantic)..." -ForegroundColor Cyan
+    try {
+        & $pythonExe -m pip install -q -r "$analyzerTarget\requirements.txt" 2>&1 | Out-Null
+        Write-Success "Python analysis dependencies verified."
+    } catch {
+        Write-Warn "Notice during pip dependency installation: $_"
+    }
+}
+
+Write-Success "All production artifacts staged in $InstallPath\bin, static-ui, and tools\analyzer."
 
 # -----------------------------------------------------------------------------
 # PHASE 5: SECRETS & CONFIGURATION HARDENING
@@ -548,7 +583,45 @@ foreach ($svc in $serviceSpecs) {
     Write-Host " Configured wrapper: $($svc.exeName).exe & $($svc.exeName).xml" -ForegroundColor DarkGray
 }
 
-Write-Success "Generated WinSW executables and XML configs for all 7 services."
+# 6.3 Configure Python Analysis Service Wrapper if Python is available
+if ($hasPython) {
+    $pyExeName = "analysis-service"
+    $pyTargetExe = Join-Path $wrapperDir "$pyExeName.exe"
+    $pyTargetXml = Join-Path $wrapperDir "$pyExeName.xml"
+    $pyScript = Join-Path $InstallPath "tools\analyzer\handshake_analyzer_server.py"
+
+    if (Test-Path $baseWinSw) {
+        Copy-Item $baseWinSw $pyTargetExe -Force
+    }
+
+    $pyLogDir = Join-Path $logsPath $pyExeName
+    if (-not (Test-Path $pyLogDir)) {
+        New-Item -ItemType Directory -Path $pyLogDir -Force | Out-Null
+    }
+
+    $pyXmlContent = @"
+<service>
+  <id>warehouse-analysis</id>
+  <name>Warehouse 08: Analysis Service</name>
+  <description>PLC-mWCS Handshake &amp; Station Tag Telemetry Engine (FastAPI)</description>
+  <executable>$pythonExe</executable>
+  <arguments>"$pyScript"</arguments>
+  <env name="ANALYSIS_PORT" value="8095"/>
+  <env name="DCS_LOG_DIR" value="$InstallPath\tools\analyzer"/>
+  <workingdirectory>$InstallPath\tools\analyzer</workingdirectory>
+  <logpath>$pyLogDir</logpath>
+  <log mode="roll-by-time">
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+  </log>
+  <onfailure action="restart" delay="5 sec"/>
+</service>
+"@
+    Set-Content -Path $pyTargetXml -Value $pyXmlContent -Encoding utf8
+    Write-Host " Configured wrapper: $pyExeName.exe & $pyExeName.xml" -ForegroundColor DarkGray
+}
+
+Write-Success "Generated WinSW executables and XML configs for platform services."
 
 # -----------------------------------------------------------------------------
 # PHASE 7: WINDOWS SERVICE REGISTRATION
@@ -565,6 +638,18 @@ foreach ($svc in $serviceSpecs) {
         }
     } else {
         Write-Host "Service already registered: $($svc.id)" -ForegroundColor DarkGray
+    }
+}
+
+if ($hasPython) {
+    $existingPy = Get-Service -Name "warehouse-analysis" -ErrorAction SilentlyContinue
+    if (-not $existingPy) {
+        if (Test-Path "analysis-service.exe") {
+            Write-Host "Installing service: warehouse-analysis..." -ForegroundColor Yellow
+            & ".\analysis-service.exe" install
+        }
+    } else {
+        Write-Host "Service already registered: warehouse-analysis" -ForegroundColor DarkGray
     }
 }
 Write-Success "All platform services registered in Windows SCM."
@@ -590,6 +675,14 @@ if (-not $SkipFirewall) {
             Write-Success "Firewall rule created: Inbound TCP 1883/8883 (MQTT Broker)."
         } else {
             Write-Host "Firewall rule already present: Mosquitto MQTT." -ForegroundColor DarkGray
+        }
+
+        $existingAnalysis = Get-NetFirewallRule -DisplayName "Warehouse Analysis Service" -ErrorAction SilentlyContinue
+        if (-not $existingAnalysis) {
+            New-NetFirewallRule -DisplayName "Warehouse Analysis Service" -Direction Inbound -LocalPort 8095 -Protocol TCP -Action Allow | Out-Null
+            Write-Success "Firewall rule created: Inbound TCP 8095 (Analysis Engine)."
+        } else {
+            Write-Host "Firewall rule already present: Analysis Service 8095." -ForegroundColor DarkGray
         }
     } catch {
         Write-Warn "Notice configuring firewall: $_"
@@ -620,6 +713,13 @@ Write-Host "Starting Phase 3: Core Engines (wms, wes)..." -ForegroundColor Yello
 Start-Service warehouse-wms -ErrorAction SilentlyContinue
 Start-Service warehouse-wes -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 8
+
+# Phase 9.3b: Telemetry Analysis Service
+if ($hasPython) {
+    Write-Host "Starting Phase 3b: Telemetry Analysis Service (warehouse-analysis)..." -ForegroundColor Yellow
+    Start-Service warehouse-analysis -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 3
+}
 
 # Phase 9.4: API Gateway & UI Host
 Write-Host "Starting Phase 4: API Gateway (warehouse-gateway)..." -ForegroundColor Yellow
@@ -659,6 +759,9 @@ $healthEndpoints = @{
     "WCS Service"     = "http://localhost:8083/actuator/health"
     "ASRS Service"    = "http://localhost:8087/actuator/health"
     "Fleet Service"   = "http://localhost:8084/actuator/health"
+}
+if ($hasPython) {
+    $healthEndpoints["Analysis Service"] = "http://localhost:8095/docs"
 }
 
 Write-Host "`nPolling Actuator health status..." -ForegroundColor Yellow

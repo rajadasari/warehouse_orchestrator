@@ -29,6 +29,7 @@ import {
   AvailableProperty,
 } from './components/MethodExpansionDrawer';
 import { SimulationResult } from './components/MethodSimulationBox';
+import { TokenRefreshConfig } from './components/TokenLifecycleCard';
 
 /* ------------------------------------------------------------------ */
 /* Public types                                                        */
@@ -44,9 +45,18 @@ export interface MethodConfigState {
     mappingId?: string;
     headersTemplate?: string;
     payloadTemplate?: string;
-    parameterBindings: Record<string, string>;
+    parameterBindings?: Record<string, string>;
     pathVariables?: Record<string, string>;
     propertyBindings?: Record<string, string>;
+    tokenRefreshConfig?: TokenRefreshConfig;
+    language?: 'JAVA' | 'PYTHON' | 'JAVASCRIPT';
+    javaCode?: string;
+    pythonCode?: string;
+    script?: string;
+    inputs?: Array<{ name: string; type: string; defaultValue?: string; description?: string }>;
+    outputType?: string;
+    storeResultToProperty?: string;
+    type?: string;
   };
 }
 
@@ -109,6 +119,9 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
   /** Saving state for individual method save actions. */
   const [savingMethod, setSavingMethod] = useState<string | null>(null);
 
+  /** Cached token from authentication test run to inject into subsequent service tests. */
+  const [cachedSimulationToken, setCachedSimulationToken] = useState<string>('');
+
   /* ---------- Load existing api_integration_mapping records on mount ---------- */
 
   useEffect(() => {
@@ -122,7 +135,13 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
         if (cancelled) return;
 
         const loaded: CustomMethodRow[] = [];
-        const configPatches: MethodConfigState = { ...methodConfigs };
+        // Only start from default blueprint methods defined in the template
+        const configPatches: MethodConfigState = {};
+        defaultMethods.forEach(dm => {
+          if (methodConfigs[dm.name]) {
+            configPatches[dm.name] = { ...methodConfigs[dm.name] };
+          }
+        });
 
         mappings.forEach(m => {
           const operationKey = m.operationType || m.mappingCode;
@@ -131,6 +150,14 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
           const isDefault = defaultMethods.some(
             dm => dm.name === operationKey,
           );
+
+          const tokenRefreshConfig = (() => {
+            try {
+              return m.conditionRules && m.conditionRules !== '[]' ? JSON.parse(m.conditionRules) : undefined;
+            } catch {
+              return undefined;
+            }
+          })();
 
           if (isDefault) {
             // Hydrate default method config from persisted mapping
@@ -146,6 +173,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
               parameterBindings: safeParseJson(m.payloadTemplate),
               propertyBindings: safeParseJson(m.payloadTemplate),
               pathVariables: {},
+              tokenRefreshConfig,
             };
           } else {
             // Custom extension method
@@ -172,6 +200,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
               parameterBindings: safeParseJson(m.payloadTemplate),
               propertyBindings: safeParseJson(m.payloadTemplate),
               pathVariables: {},
+              tokenRefreshConfig,
             };
           }
         });
@@ -241,6 +270,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
         propertyBindings: cfg?.propertyBindings ?? cfg?.parameterBindings ?? {},
         pathVariables: cfg?.pathVariables ?? {},
         mappingId: cfg?.mappingId,
+        tokenRefreshConfig: cfg?.tokenRefreshConfig,
       };
     },
     [methodConfigs, port],
@@ -248,25 +278,32 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
 
   const handleDrawerConfigChange = useCallback(
     (methodName: string, updated: MethodDrawerConfig) => {
-      onChangeMethodConfigs({
-        ...methodConfigs,
-        [methodName]: {
-          ...methodConfigs[methodName],
-          httpMethod: updated.httpMethod,
-          port: updated.port,
-          path: updated.urlPath,
-          displayName: updated.displayName,
-          operationCode: updated.operationCode,
-          mappingId: updated.mappingId,
-          headersTemplate: updated.headersTemplate,
-          payloadTemplate: updated.payloadTemplate,
-          parameterBindings: updated.propertyBindings,
-          propertyBindings: updated.propertyBindings,
-          pathVariables: updated.pathVariables,
-        },
-      });
+      const nextConfigs = { ...methodConfigs };
+      const newMethodName = updated.operationCode?.trim() || methodName;
 
-      // Also sync displayName back into customMethods if it's a custom method
+      if (newMethodName !== methodName) {
+        delete nextConfigs[methodName];
+      }
+
+      nextConfigs[newMethodName] = {
+        ...(methodConfigs[methodName] || {}),
+        httpMethod: updated.httpMethod,
+        port: updated.port,
+        path: updated.urlPath,
+        displayName: updated.displayName,
+        operationCode: newMethodName,
+        mappingId: updated.mappingId,
+        headersTemplate: updated.headersTemplate,
+        payloadTemplate: updated.payloadTemplate,
+        parameterBindings: updated.propertyBindings,
+        propertyBindings: updated.propertyBindings,
+        pathVariables: updated.pathVariables,
+        tokenRefreshConfig: updated.tokenRefreshConfig,
+      };
+
+      onChangeMethodConfigs(nextConfigs);
+
+      // Also sync displayName & name back into customMethods if it's a custom method
       setCustomMethods(prev =>
         prev.map(cm =>
           cm.name === methodName
@@ -276,7 +313,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
                 httpMethod: updated.httpMethod,
                 urlPath: updated.urlPath,
                 port: updated.port,
-                name: updated.operationCode ?? cm.name,
+                name: newMethodName,
               }
             : cm,
         ),
@@ -304,7 +341,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
         endpointUrl: cfg.path || '/',
         headersTemplate: cfg.headersTemplate || '{"Content-Type": "application/json"}',
         payloadTemplate: cfg.payloadTemplate || JSON.stringify(cfg.propertyBindings ?? cfg.parameterBindings ?? {}),
-        conditionRules: '[]',
+        conditionRules: cfg.tokenRefreshConfig ? JSON.stringify(cfg.tokenRefreshConfig) : '[]',
         active: true,
       };
 
@@ -383,6 +420,15 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
         }
       };
 
+      if (cachedSimulationToken) {
+        fullContext.token = cachedSimulationToken;
+        fullContext.auth = {
+          token: cachedSimulationToken,
+          bearerToken: `Bearer ${cachedSimulationToken}`,
+          method: 'OAUTH2_BEARER',
+        };
+      }
+
       const finalPayloadTemplate = payloadTemplateOverride || cfg?.payloadTemplate || JSON.stringify(payload);
       const finalHeadersTemplate = headersTemplateOverride || cfg?.headersTemplate || '{"Content-Type": "application/json"}';
 
@@ -395,6 +441,19 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
         testContext: fullContext,
       });
 
+      // If auth response succeeded and contains a token, remember it for subsequent custom service runs
+      if (data.success && data.responsePayload) {
+        try {
+          const parsed = JSON.parse(data.responsePayload);
+          const candidateToken = parsed.access_token || parsed.accessToken || parsed.token || parsed.jwt || parsed.data?.token || parsed.data?.accessToken;
+          if (candidateToken && typeof candidateToken === 'string') {
+            setCachedSimulationToken(candidateToken.trim());
+          }
+        } catch {
+          // Response payload wasn't JSON
+        }
+      }
+
       return {
         success: data.success ?? false,
         statusCode: data.statusCode ?? 0,
@@ -404,7 +463,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
         error: data.error,
       };
     },
-    [expandedMethodKey, customMethods, methodConfigs, customProperties, inheritedValues, resourceId, selectedTemplate],
+    [expandedMethodKey, customMethods, methodConfigs, customProperties, inheritedValues, resourceId, selectedTemplate, cachedSimulationToken],
   );
 
   /* ---------- Custom method CRUD ---------- */
@@ -462,6 +521,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
 
   /* ---------- Endpoint preview ---------- */
 
+  const isStandaloneTwin = !protocol || !host;
   const syntheticEndpoint = computeSyntheticEndpoint(host, port || undefined, protocol);
 
   /* ---------- Render ---------- */
@@ -518,13 +578,13 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
             border: '1px solid var(--border-default)',
           }}
         >
-          <Globe size={14} color="#38BDF8" />
-          <span style={{ color: 'var(--text-secondary)' }}>Target Endpoint:</span>
+          <Globe size={14} color={isStandaloneTwin ? "#10B981" : "#38BDF8"} />
+          <span style={{ color: 'var(--text-secondary)' }}>Target Gateway:</span>
           <span
             style={{
               fontFamily: 'monospace',
               fontWeight: 600,
-              color: 'var(--text-primary)',
+              color: isStandaloneTwin ? '#10B981' : 'var(--text-primary)',
             }}
           >
             {syntheticEndpoint}
@@ -546,7 +606,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
           }}
         >
           <Loader2 size={16} className="animate-spin" />
-          Loading persisted method mappings…
+          Loading persisted service mappings…
         </div>
       )}
 
@@ -565,7 +625,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
         }}
       >
         <span />
-        <span>Method / Name</span>
+        <span>Service / Name</span>
         <span>HTTP</span>
         <span>Port</span>
         <span>URL Path</span>
@@ -593,7 +653,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
               color: 'var(--text-secondary)',
             }}
           >
-            Default Blueprint Methods ({defaultMethods.length})
+            Default Blueprint Services ({defaultMethods.length})
           </span>
         </div>
 
@@ -609,7 +669,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
                 borderRadius: '8px',
               }}
             >
-              No default methods defined in the selected template blueprint.
+              No default services defined in the selected template blueprint.
             </div>
           ) : (
             defaultMethods.map(m => {
@@ -684,7 +744,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
                 color: 'var(--text-secondary)',
               }}
             >
-              Custom Extension Methods ({customMethods.length})
+              Custom Extension Services ({customMethods.length})
             </span>
           </div>
 
@@ -701,7 +761,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
               color: '#A855F7',
             }}
           >
-            Add Custom Method
+            Add Custom Service
           </Button>
         </div>
 
@@ -717,7 +777,7 @@ export const Step3MethodMapping: React.FC<Step3MethodMappingProps> = ({
                 borderRadius: '8px',
               }}
             >
-              No custom methods defined. Click <strong>+ Add Custom Method</strong> to
+              No custom services defined. Click <strong>+ Add Custom Service</strong> to
               create vendor-specific API integrations.
             </div>
           ) : (

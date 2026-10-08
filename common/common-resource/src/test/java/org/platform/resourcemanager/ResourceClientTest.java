@@ -142,13 +142,29 @@ class ResourceClientTest {
     }
 
     @Test
-    @DisplayName("Should decommission resource accurately")
+    @DisplayName("Should decommission resource and clean up topology edges and active leases")
     void shouldDecommissionResource() {
         client.register(CreateResourceRequest.of("factory", "STATION-1", "Station 1", "EQUIPMENT"));
+        client.register(CreateResourceRequest.of("factory", "ROBOT-1", "Robot 1", "EQUIPMENT"));
         assertThat(client.findResource(stationId)).isPresent();
+
+        // Establish topology edge and active lease
+        client.link(stationId, robotId, RelationshipType.FEEDS);
+        assertThat(client.getDownstreamProductionLine(stationId)).containsExactly(robotId);
+
+        AllocationResult alloc = client.allocateGang(AllocationRequest.of(Set.of(stationId), "JOB-1", Duration.ofMinutes(5)));
+        assertThat(alloc.isGranted()).isTrue();
+        assertThat(client.arbitration().getActiveLeases()).isNotEmpty();
 
         boolean decommissioned = client.decommissionResource(stationId);
         assertThat(decommissioned).isTrue();
         assertThat(client.findResource(stationId)).isEmpty();
+
+        // Verify topology edges are purged
+        assertThat(client.getDownstreamProductionLine(stationId)).isEmpty();
+        assertThat(client.topology().getChildResources(stationId)).isEmpty();
+
+        // Verify leases referencing decommissioned resource are released
+        assertThat(client.arbitration().getActiveLeases()).isEmpty();
     }
 }

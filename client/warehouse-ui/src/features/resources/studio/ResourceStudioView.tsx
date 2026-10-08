@@ -1,13 +1,13 @@
-
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ArrowLeft, Save, X, Loader2, CheckCircle2 } from 'lucide-react';
 import { ResourceItem, CreateResourcePayload, resourceService } from '../../../services/resourceService';
-import { ResourceTemplateItem, fetchResourceTemplatesApi } from '../../../services/resourceTemplateService';
+import { ResourceTemplateItem, PropertySchemaItem, fetchResourceTemplatesApi } from '../../../services/resourceTemplateService';
+import { MethodDefinition } from '../types/resourceEnums';
 import { StudioStepper, StepItem } from './StudioStepper';
 import { Step1Identity } from './Step1Identity';
 import { Step2Properties, CustomPropertyRow } from './Step2Properties';
 import { Step3MethodMapping, MethodConfigState } from './Step3MethodMapping';
+import { Step3CodeMethodConfig } from './Step3CodeMethodConfig';
 import { Step4ValidationSandbox } from './Step4ValidationSandbox';
 import { Button } from '../../../components/common/Button';
 import { Alert } from '../../../components/common/Alert';
@@ -19,13 +19,6 @@ export interface ResourceStudioViewProps {
   onCancel: () => void;
 }
 
-const STUDIO_STEPS: StepItem[] = [
-  { id: 1, label: 'Resource Definition', description: 'Blueprint, identity & specifications' },
-  { id: 2, label: 'Properties Matrix', description: 'Inherited defaults & custom definitions' },
-  { id: 3, label: 'Method Mapping', description: 'Search-based parameter binder' },
-  { id: 4, label: 'Validation Sandbox', description: 'Execution dry-run & activation' }
-];
-
 export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
   editingResource,
   onSaveSuccess,
@@ -36,15 +29,14 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
   // Stepper state
   const [currentStep, setCurrentStep] = useState<number>(1);
 
-  // Creation Mode & Template state
-  const [creationMode, setCreationMode] = useState<'TEMPLATE' | 'STANDALONE'>('TEMPLATE');
+  // Template state
   const [availableTemplates, setAvailableTemplates] = useState<ResourceTemplateItem[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<ResourceTemplateItem | null>(null);
+  const [selectedTemplates, setSelectedTemplates] = useState<ResourceTemplateItem[]>([]);
 
   // Step 1: Definition fields
   const [resourceId, setResourceId] = useState<string>(editingResource?.resourceId || '');
   const [name, setName] = useState<string>(editingResource?.name || '');
-  const [category, setCategory] = useState<string>(editingResource?.category || 'PHYSICAL');
+  const [category, setCategory] = useState<string>(editingResource?.category || 'GENERAL');
   const [type, setType] = useState<string>(editingResource?.type || '');
   const [application, setApplication] = useState<string>(editingResource?.application || '');
   const [status, setStatus] = useState<string>(editingResource?.status || 'ACTIVE');
@@ -54,8 +46,6 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
   // Step 2: Consolidated Property Matrix (Default and Custom definitions)
   const [inheritedValues, setInheritedValues] = useState<Record<string, unknown>>({});
   const [customProperties, setCustomProperties] = useState<CustomPropertyRow[]>([]);
-  const [tokenPath, setTokenPath] = useState<string>('');
-  const [tokenResponseField, setTokenResponseField] = useState<string>('');
   const [inheritedAuthKeys, setInheritedAuthKeys] = useState<string[]>([]);
 
   // Step 3: Method configurations
@@ -67,54 +57,193 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const isSoftware = useMemo(() => {
+    return (category || 'GENERAL').toUpperCase() === 'SOFTWARE';
+  }, [category]);
+
+  const studioSteps: StepItem[] = useMemo(() => [
+    { id: 1, label: 'Resource Definition', description: 'Blueprint, identity & specifications' },
+    { id: 2, label: 'Properties Matrix', description: 'Inherited defaults & custom definitions' },
+    { 
+      id: 3, 
+      label: isSoftware ? 'API Service Mapping' : 'Java & Python Services', 
+      description: isSoftware ? 'Search-based parameter binder & endpoints' : 'Polyglot code logic & dynamic scripts' 
+    },
+    { id: 4, label: 'Validation Sandbox', description: 'Execution dry-run & activation' }
+  ], [isSoftware]);
+
+  // Combined synthetic template aggregating all selected templates
+  const combinedTemplate: ResourceTemplateItem | null = useMemo(() => {
+    if (selectedTemplates.length === 0) return null;
+    if (selectedTemplates.length === 1) return selectedTemplates[0];
+
+    const primary = selectedTemplates[0];
+    const combinedProps: Record<string, unknown> = {};
+    const combinedSchema: PropertySchemaItem[] = [];
+    const seenPropKeys = new Set<string>();
+    const combinedMethods: MethodDefinition[] = [];
+    const seenMethodNames = new Set<string>();
+
+    selectedTemplates.forEach((tpl, idx) => {
+      // 1. Merge default properties: primary first, subsequent only add non-colliding
+      if (tpl.defaultProperties) {
+        Object.entries(tpl.defaultProperties).forEach(([k, v]) => {
+          if (combinedProps[k] === undefined) {
+            combinedProps[k] = v;
+          }
+        });
+      }
+      // 2. Merge propertySchema: primary first, subsequent only add non-colliding
+      if (tpl.propertySchema) {
+        tpl.propertySchema.forEach(p => {
+          if (!seenPropKeys.has(p.key)) {
+            seenPropKeys.add(p.key);
+            combinedSchema.push({
+              ...p,
+              description: idx === 0 
+                ? p.description 
+                : p.description ? `[${tpl.templateCode}] ${p.description}` : `Inherited from ${tpl.templateCode}`
+            });
+          }
+        });
+      }
+      // 3. Merge methodsSchema: primary first, subsequent only add non-colliding
+      if (tpl.methodsSchema) {
+        tpl.methodsSchema.forEach(m => {
+          if (!seenMethodNames.has(m.name)) {
+            seenMethodNames.add(m.name);
+            combinedMethods.push({
+              ...m,
+              description: idx === 0 
+                ? m.description 
+                : m.description ? `[${tpl.templateCode}] ${m.description}` : `Inherited from ${tpl.templateCode}`
+            });
+          }
+        });
+      }
+    });
+
+    return {
+      ...primary,
+      templateCode: selectedTemplates.map(t => t.templateCode).join(','),
+      templateName: selectedTemplates.map(t => t.templateName).join(' + '),
+      propertySchema: combinedSchema,
+      defaultProperties: combinedProps,
+      methodsSchema: combinedMethods,
+      supportedCommands: Array.from(new Set(selectedTemplates.flatMap(t => t.supportedCommands || [])))
+    };
+  }, [selectedTemplates]);
+
   // Fetch available templates on load and link editingResource template if present
   useEffect(() => {
     fetchResourceTemplatesApi()
       .then(templates => {
         setAvailableTemplates(templates);
-        const targetCode = editingResource?.templateCode;
-        if (targetCode) {
-          const match = templates.find(
-            t => t.templateCode.toUpperCase() === targetCode.toUpperCase()
-          );
-          if (match) {
-            setSelectedTemplate(match);
-            setCreationMode('TEMPLATE');
+        if (editingResource?.templateCode) {
+          const codes = editingResource.templateCode.split(',').map(c => c.trim().toUpperCase());
+          const matched = templates.filter(t => codes.includes(t.templateCode.toUpperCase()));
+          if (matched.length > 0) {
+            setSelectedTemplates(matched);
+            if (matched[0].category) setCategory(matched[0].category);
+          }
+        } else if (!editingResource) {
+          // Default to GENERIC_DIGITAL_TWIN or first GENERAL template
+          const defaultTpl = templates.find(t => t.templateCode === 'GENERIC_DIGITAL_TWIN') ||
+                             templates.find(t => (t.category || '').toUpperCase() === 'GENERAL') ||
+                             templates[0];
+          if (defaultTpl) {
+            setSelectedTemplates([defaultTpl]);
+            setCategory(defaultTpl.category || 'GENERAL');
+            if (defaultTpl.resourceType) setType(defaultTpl.resourceType);
+            const initialProps: Record<string, unknown> = { ...(defaultTpl.defaultProperties || {}) };
+            if (defaultTpl.propertySchema) {
+              defaultTpl.propertySchema.forEach(item => {
+                if (item.defaultValue !== undefined && initialProps[item.key] === undefined) {
+                  initialProps[item.key] = item.defaultValue;
+                }
+              });
+            }
+            setInheritedValues(initialProps);
           }
         }
       })
       .catch(err => console.error('Failed to load templates for studio:', err));
   }, [editingResource]);
 
-  // Keep selectedTemplate in sync if availableTemplates loads or editingResource changes
-  useEffect(() => {
-    if (editingResource?.templateCode && availableTemplates.length > 0 && !selectedTemplate) {
-      const match = availableTemplates.find(
-        t => t.templateCode.toUpperCase() === editingResource.templateCode!.toUpperCase()
-      );
-      if (match) {
-        setSelectedTemplate(match);
-        setCreationMode('TEMPLATE');
+  // Handle template toggle (multi-select for general/software, single-select for OT_DEVICE)
+  const handleToggleTemplate = (tpl: ResourceTemplateItem) => {
+    const isOtDevice = (category || tpl.category || '').toUpperCase() === 'OT_DEVICE';
+    setSelectedTemplates(prev => {
+      let updated: ResourceTemplateItem[];
+      if (isOtDevice) {
+        const exists = prev.some(t => t.templateCode === tpl.templateCode);
+        updated = exists ? [] : [tpl];
+      } else {
+        const exists = prev.some(t => t.templateCode === tpl.templateCode);
+        if (exists) {
+          updated = prev.filter(t => t.templateCode !== tpl.templateCode);
+        } else {
+          updated = [...prev, tpl];
+        }
       }
-    }
-  }, [editingResource, availableTemplates, selectedTemplate]);
 
-  // When template is selected, populate inherited defaults
-  const handleSelectTemplate = (template: ResourceTemplateItem | null) => {
-    setSelectedTemplate(template);
-    if (template) {
-      const initialProps: Record<string, unknown> = { ...(template.defaultProperties || {}) };
-      if (template.propertySchema) {
-        template.propertySchema.forEach(item => {
+      // Re-aggregate default properties strictly from selected templates
+      const mergedDefaults: Record<string, unknown> = {};
+      updated.forEach(t => {
+        if (t.defaultProperties) {
+          Object.entries(t.defaultProperties).forEach(([k, v]) => {
+            if (mergedDefaults[k] === undefined) {
+              mergedDefaults[k] = v;
+            }
+          });
+        }
+        if (t.propertySchema) {
+          t.propertySchema.forEach(item => {
+            if (item.defaultValue !== undefined && mergedDefaults[item.key] === undefined) {
+              mergedDefaults[item.key] = item.defaultValue;
+            }
+          });
+        }
+      });
+
+      // Pure template defaults - no phantom coordinate accumulation
+      setInheritedValues(mergedDefaults);
+
+      if (updated.length > 0) {
+        setType(updated[0].resourceType || '');
+        if (!name) setName(updated[0].templateName);
+      }
+      return updated;
+    });
+  };
+
+  // Handle category change: switches active category and keeps selection strictly within that category
+  const handleChangeCategory = (newCat: string) => {
+    setCategory(newCat);
+    const templatesInNewCat = availableTemplates.filter(
+      t => (t.category || 'GENERAL').toUpperCase() === newCat.toUpperCase()
+    );
+    const retained = selectedTemplates.filter(
+      t => (t.category || 'GENERAL').toUpperCase() === newCat.toUpperCase()
+    );
+
+    if (retained.length > 0) {
+      setSelectedTemplates(retained);
+    } else if (templatesInNewCat.length > 0) {
+      const first = templatesInNewCat[0];
+      setSelectedTemplates([first]);
+      const initialProps: Record<string, unknown> = { ...(first.defaultProperties || {}) };
+      if (first.propertySchema) {
+        first.propertySchema.forEach(item => {
           if (item.defaultValue !== undefined && initialProps[item.key] === undefined) {
             initialProps[item.key] = item.defaultValue;
           }
         });
       }
       setInheritedValues(initialProps);
-      if (template.category) setCategory(template.category);
-      if (template.resourceType) setType(template.resourceType);
+      if (!type) setType(first.resourceType || '');
     } else {
+      setSelectedTemplates([]);
       setInheritedValues({});
     }
   };
@@ -130,13 +259,10 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
       setDocumentationUrl(editingResource.documentationUrl || '');
 
       const templateDefaults: Record<string, unknown> = {};
-      const tpl = selectedTemplate || availableTemplates.find(
-        t => t.templateCode.toUpperCase() === (editingResource.templateCode || '').toUpperCase()
-      );
-      if (tpl) {
-        if (tpl.defaultProperties) Object.assign(templateDefaults, tpl.defaultProperties);
-        if (tpl.propertySchema) {
-          tpl.propertySchema.forEach(item => {
+      if (combinedTemplate) {
+        if (combinedTemplate.defaultProperties) Object.assign(templateDefaults, combinedTemplate.defaultProperties);
+        if (combinedTemplate.propertySchema) {
+          combinedTemplate.propertySchema.forEach(item => {
             if (item.defaultValue !== undefined && templateDefaults[item.key] === undefined) {
               templateDefaults[item.key] = item.defaultValue;
             }
@@ -150,7 +276,7 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
         ...(editingResource.effectiveProperties || {}),
         ...(editingResource.customProperties || {})
       };
-      // Seamlessly backfill host/ip/port/protocol into property matrix if missing
+
       if (editingResource.host && !existingProps['host'] && !existingProps['ip'] && !existingProps['ipAddress']) {
         existingProps['host'] = editingResource.host;
       }
@@ -161,14 +287,6 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
         existingProps['protocol'] = editingResource.protocol;
       }
 
-      if (existingProps['tokenPath']) {
-        setTokenPath(String(existingProps['tokenPath']));
-      }
-      if (existingProps['tokenResponseField']) {
-        setTokenResponseField(String(existingProps['tokenResponseField']));
-      }
-
-      // Hydrate custom properties and auth keys if properties array exists
       if (Array.isArray(existingProps.properties)) {
         const loadedCustom: CustomPropertyRow[] = [];
         const authKeys: string[] = [];
@@ -187,17 +305,23 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
           }
         });
         if (loadedCustom.length > 0) setCustomProperties(loadedCustom);
+        else setCustomProperties([]);
         if (authKeys.length > 0) setInheritedAuthKeys(authKeys);
+        else setInheritedAuthKeys([]);
+      } else {
+        setCustomProperties([]);
+        setInheritedAuthKeys([]);
       }
 
       setInheritedValues(existingProps);
 
-      // Method configs
       if (editingResource.methodsConfig) {
         setMethodConfigs(editingResource.methodsConfig as MethodConfigState);
+      } else {
+        setMethodConfigs({});
       }
     }
-  }, [editingResource, selectedTemplate, availableTemplates]);
+  }, [editingResource, combinedTemplate]);
 
   // Inherited property change handler
   const handleChangeInheritedValue = (key: string, val: unknown) => {
@@ -253,12 +377,12 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
       ...inheritedValues,
       ...customPropertiesRecord
     };
-    return extractConnectionCoordinates(merged, selectedTemplate);
-  }, [inheritedValues, customPropertiesRecord, selectedTemplate]);
+    return extractConnectionCoordinates(merged, combinedTemplate);
+  }, [inheritedValues, customPropertiesRecord, combinedTemplate]);
 
   // Step validation
   const isStepComplete = (stepId: number): boolean => {
-    if (stepId === 1) return Boolean(resourceId.trim() && name.trim() && category.trim() && type.trim());
+    if (stepId === 1) return Boolean(resourceId.trim() && name.trim() && category.trim() && (selectedTemplates.length > 0 || isEditing));
     if (stepId === 2) return isStepComplete(1);
     if (stepId === 3) return isStepComplete(2);
     if (stepId === 4) return isStepComplete(3);
@@ -267,10 +391,12 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
 
   // Construct current payload snapshot
   const buildCurrentPayload = useCallback((): CreateResourcePayload => {
-    const effTemplateCode = selectedTemplate?.templateCode || editingResource?.templateCode;
-    const isTemplateMode = creationMode === 'TEMPLATE' || Boolean(effTemplateCode);
+    const effTemplateCode = selectedTemplates.length > 0 
+      ? selectedTemplates.map(t => t.templateCode).join(',')
+      : editingResource?.templateCode;
 
-    // Construct structured properties array for TokenManager if custom properties exist
+    const effType = (selectedTemplates[0]?.resourceType || type || editingResource?.type || 'GENERIC').trim();
+
     const structuredProperties = [
       ...customProperties.filter(c => c.key.trim()).map(c => ({
         key: c.key.trim(),
@@ -282,9 +408,7 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
     ];
 
     const customPropsPayload: Record<string, unknown> = {
-      ...customPropertiesRecord,
-      ...(tokenPath ? { tokenPath } : {}),
-      ...(tokenResponseField ? { tokenResponseField } : {})
+      ...customPropertiesRecord
     };
     if (structuredProperties.length > 0) {
       customPropsPayload['properties'] = structuredProperties;
@@ -297,15 +421,15 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
 
     const { host: effHost, port: effPort, protocol: effProto } = extractConnectionCoordinates(
       allMerged,
-      isTemplateMode ? selectedTemplate : null
+      combinedTemplate
     );
 
     return {
       resourceId: resourceId.trim(),
       name: name.trim(),
-      type: type.trim(),
-      category: category.trim(),
-      templateCode: isTemplateMode ? effTemplateCode : undefined,
+      type: effType,
+      category: (category || 'GENERAL').trim(),
+      templateCode: effTemplateCode,
       status,
       host: effHost,
       port: effPort,
@@ -313,7 +437,7 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
       application: application.trim() || undefined,
       description: description.trim() || undefined,
       documentationUrl: documentationUrl.trim() || undefined,
-      templateProperties: isTemplateMode ? inheritedValues : undefined,
+      templateProperties: inheritedValues,
       customProperties: customPropsPayload,
       methodsConfig: methodConfigs
     };
@@ -326,14 +450,12 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
     application,
     description,
     documentationUrl,
-    creationMode,
-    selectedTemplate,
+    selectedTemplates,
+    combinedTemplate,
     editingResource,
     inheritedValues,
     customPropertiesRecord,
     customProperties,
-    tokenPath,
-    tokenResponseField,
     methodConfigs
   ]);
 
@@ -343,7 +465,6 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
 
     const payload = buildCurrentPayload();
 
-    // 1. Always store draft in localStorage snapshot
     try {
       const draftKey = `res_draft_${resourceId.trim() || 'new'}`;
       localStorage.setItem(draftKey, JSON.stringify(payload));
@@ -351,7 +472,6 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
       // ignore localStorage quota issues
     }
 
-    // 2. If editing existing resource, auto-save to backend on tab change
     if (isEditing && resourceId.trim() && name.trim()) {
       setIsAutoSaving(true);
       try {
@@ -372,6 +492,11 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
   const handleSave = async () => {
     if (!resourceId.trim() || !name.trim()) {
       setErrorMessage('Resource ID and Name are required in Step 1 Definition.');
+      setCurrentStep(1);
+      return;
+    }
+    if (selectedTemplates.length === 0 && !isEditing) {
+      setErrorMessage('Please select at least one template blueprint in Step 1.');
       setCurrentStep(1);
       return;
     }
@@ -475,7 +600,7 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
             variant="primary"
             size="sm"
             onClick={handleSave}
-            disabled={isSaving || !resourceId.trim() || !name.trim()}
+            disabled={isSaving || !resourceId.trim() || !name.trim() || (selectedTemplates.length === 0 && !isEditing)}
             leftIcon={isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             style={{ minHeight: '40px', padding: '0 20px', backgroundColor: '#10B981', borderColor: '#10B981' }}
           >
@@ -493,7 +618,7 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
 
       {/* 2. Stepper Component */}
       <StudioStepper
-        steps={STUDIO_STEPS}
+        steps={studioSteps}
         currentStep={currentStep}
         onSelectStep={stepId => handleStepTransition(stepId)}
         isStepComplete={isStepComplete}
@@ -504,13 +629,11 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {currentStep === 1 && (
           <Step1Identity
-            creationMode={creationMode}
-            onChangeCreationMode={setCreationMode}
             availableTemplates={availableTemplates}
-            selectedTemplate={selectedTemplate}
-            onSelectTemplate={handleSelectTemplate}
+            selectedTemplates={selectedTemplates}
+            onToggleTemplate={handleToggleTemplate}
             category={category}
-            onChangeCategory={setCategory}
+            onChangeCategory={handleChangeCategory}
             type={type}
             onChangeType={setType}
             resourceId={resourceId}
@@ -532,7 +655,7 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
 
         {currentStep === 2 && (
           <Step2Properties
-            selectedTemplate={selectedTemplate}
+            selectedTemplate={combinedTemplate}
             category={category}
             inheritedValues={inheritedValues}
             onChangeInheritedValue={handleChangeInheritedValue}
@@ -540,10 +663,6 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
             onAddCustomProperty={handleAddCustomProperty}
             onUpdateCustomProperty={handleUpdateCustomProperty}
             onRemoveCustomProperty={handleRemoveCustomProperty}
-            tokenPath={tokenPath}
-            onChangeTokenPath={setTokenPath}
-            tokenResponseField={tokenResponseField}
-            onChangeTokenResponseField={setTokenResponseField}
             inheritedAuthKeys={inheritedAuthKeys}
             onToggleInheritedAuth={handleToggleInheritedAuth}
             onBack={() => handleStepTransition(1)}
@@ -552,19 +671,33 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
         )}
 
         {currentStep === 3 && (
-          <Step3MethodMapping
-            selectedTemplate={selectedTemplate}
-            resourceId={resourceId}
-            host={connectionCoords.host}
-            port={connectionCoords.port ?? ''}
-            protocol={connectionCoords.protocol}
-            inheritedValues={inheritedValues}
-            customProperties={customProperties}
-            methodConfigs={methodConfigs}
-            onChangeMethodConfigs={setMethodConfigs}
-            onBack={() => handleStepTransition(2)}
-            onNext={() => handleStepTransition(4)}
-          />
+          isSoftware ? (
+            <Step3MethodMapping
+              selectedTemplate={combinedTemplate}
+              resourceId={resourceId}
+              host={connectionCoords.host}
+              port={connectionCoords.port ?? ''}
+              protocol={connectionCoords.protocol}
+              inheritedValues={inheritedValues}
+              customProperties={customProperties}
+              methodConfigs={methodConfigs}
+              onChangeMethodConfigs={setMethodConfigs}
+              onBack={() => handleStepTransition(2)}
+              onNext={() => handleStepTransition(4)}
+            />
+          ) : (
+            <Step3CodeMethodConfig
+              selectedTemplate={combinedTemplate}
+              resourceId={resourceId}
+              category={category}
+              inheritedValues={inheritedValues}
+              customProperties={customProperties}
+              methodConfigs={methodConfigs}
+              onChangeMethodConfigs={setMethodConfigs}
+              onBack={() => handleStepTransition(2)}
+              onNext={() => handleStepTransition(4)}
+            />
+          )
         )}
 
         {currentStep === 4 && (
@@ -578,7 +711,7 @@ export const ResourceStudioView: React.FC<ResourceStudioViewProps> = ({
             status={status}
             description={description}
             documentationUrl={documentationUrl}
-            selectedTemplate={selectedTemplate}
+            selectedTemplate={combinedTemplate}
             inheritedValues={inheritedValues}
             customPropertiesRecord={customPropertiesRecord}
             methodConfigs={methodConfigs}

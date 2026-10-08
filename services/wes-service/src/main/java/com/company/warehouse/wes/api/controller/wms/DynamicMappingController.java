@@ -19,14 +19,23 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.company.warehouse.wes.domain.resource.TokenRefreshConfig;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import com.company.warehouse.common.client.software.dynamic.DynamicResponseExtractor;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -39,6 +48,8 @@ public class DynamicMappingController {
     private final ApiIntegrationMappingRepository mappingRepository;
     private final DynamicPayloadEngine dynamicEngine;
     private final TokenManager tokenManager;
+    private final ObjectMapper objectMapper;
+    private final DynamicResponseExtractor responseExtractor = new DynamicResponseExtractor();
 
     /**
      * List dynamic API mappings.
@@ -203,13 +214,27 @@ public class DynamicMappingController {
                 ? request.getResourceId().trim()
                 : "LOGIQS-AMBIENT-WMS";
 
-        Map<String, Object> context = buildSampleContext(targetResId, request.getTestContext());
-        String resolvedPayload = dynamicEngine.buildPayload(request.getPayloadTemplate(), context);
-        Map<String, String> resolvedHeaders = dynamicEngine.buildHeaders(request.getHeadersTemplate(), context);
-
-        String baseUrl = tokenManager.resolveBaseUrl(targetResId);
         String rawEndpoint = request.getEndpointUrl() != null ? request.getEndpointUrl().trim() : "";
         rawEndpoint = rawEndpoint.replaceFirst("^(?i)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\\s+", "");
+
+        String token = resolveOrAutoAcquireToken(targetResId, rawEndpoint);
+
+        Map<String, Object> context = buildSampleContext(targetResId, request.getTestContext());
+        if (token != null && !token.trim().isEmpty()) {
+            context.put("token", token);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> authMap = (Map<String, Object>) context.computeIfAbsent("auth", k -> new HashMap<String, Object>());
+            authMap.put("token", token);
+            authMap.put("bearerToken", "Bearer " + token);
+        }
+
+        String resolvedPayload = dynamicEngine.buildPayload(request.getPayloadTemplate(), context);
+        Map<String, String> resolvedHeaders = new HashMap<>(dynamicEngine.buildHeaders(request.getHeadersTemplate(), context));
+
+        // Guarantee Bearer token is injected and <token> placeholders are replaced
+        applyAuthorizationHeaders(resolvedHeaders, token);
+
+        String baseUrl = tokenManager.resolveBaseUrl(targetResId);
         String resolvedPath = dynamicEngine.resolveUrl(rawEndpoint, context);
 
         String cleanBase = baseUrl != null ? baseUrl.replaceAll("/+$", "") : "";
@@ -218,64 +243,123 @@ public class DynamicMappingController {
                 ? resolvedPath
                 : cleanBase + cleanPath;
 
-        String token = null;
-        try {
-            token = tokenManager.getBearerToken(targetResId);
-        } catch (Exception e) {
-            log.warn("Could not retrieve bearer token for {}: {}", targetResId, e.getMessage());
-        }
-
         log.info("Executing Test-Run dispatch to: {} [{}]", fullUrl, request.getHttpMethod());
 
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(5000);
         requestFactory.setReadTimeout(10000);
 
+        TokenRefreshConfig refreshConfig = resolveTokenRefreshConfig(targetResId);
+        int maxRetries = refreshConfig != null ? refreshConfig.getEffectiveMaxRetries() : 0;
+        int attempt = 0;
+
         try {
-            RestClient testClient = RestClient.builder()
-                    .requestFactory(requestFactory)
-                    .build();
-            RestClient.RequestBodySpec spec = testClient.method(HttpMethod.valueOf(request.getHttpMethod().toUpperCase()))
-                    .uri(fullUrl);
+            while (true) {
+                try {
+                RestClient testClient = RestClient.builder()
+                        .requestFactory(requestFactory)
+                        .build();
+                RestClient.RequestBodySpec spec = testClient.method(HttpMethod.valueOf(request.getHttpMethod().toUpperCase()))
+                        .uri(fullUrl);
 
-            resolvedHeaders.forEach(spec::header);
-            if (!resolvedHeaders.containsKey("Accept") && !resolvedHeaders.containsKey("accept")) {
-                spec.header("Accept", "application/json, */*");
-            }
-            if (token != null && !token.trim().isEmpty()) {
-                if (!resolvedHeaders.containsKey("Authentication")) {
-                    spec.header("Authentication", token);
+                resolvedHeaders.forEach(spec::header);
+                if (!resolvedHeaders.containsKey("Accept") && !resolvedHeaders.containsKey("accept")) {
+                    spec.header("Accept", "application/json, */*");
                 }
-                if (!resolvedHeaders.containsKey("Authorization")) {
-                    spec.header("Authorization", "Bearer " + token);
+
+                // Determine effective Content-Type header
+                String effectiveContentType = resolvedHeaders.entrySet().stream()
+                        .filter(e -> "content-type".equalsIgnoreCase(e.getKey()))
+                        .map(Map.Entry::getValue)
+                        .findFirst()
+                        .orElse(null);
+
+                if (effectiveContentType == null || effectiveContentType.trim().isEmpty()) {
+                    effectiveContentType = MediaType.APPLICATION_JSON_VALUE;
                 }
+
+                String finalDispatchPayload = resolvedPayload;
+                if (!"GET".equalsIgnoreCase(request.getHttpMethod()) && resolvedPayload != null && !resolvedPayload.trim().isEmpty()) {
+                    String ctLower = effectiveContentType.toLowerCase();
+                    if (ctLower.contains("x-www-form-urlencoded")) {
+                        finalDispatchPayload = formatPayloadForFormUrlEncoded(resolvedPayload);
+                        spec.contentType(MediaType.APPLICATION_FORM_URLENCODED);
+                    } else if (ctLower.contains("json")) {
+                        spec.contentType(MediaType.APPLICATION_JSON);
+                    } else if (ctLower.contains("xml")) {
+                        spec.contentType(MediaType.APPLICATION_XML);
+                    } else {
+                        spec.header("Content-Type", effectiveContentType);
+                    }
+                    spec.body(finalDispatchPayload);
+                }
+
+                ResponseEntity<String> response = spec.retrieve().toEntity(String.class);
+
+                Map<String, Object> result = new HashMap<>();
+                result.put("success", true);
+                result.put("targetUrl", fullUrl);
+                result.put("requestPayload", finalDispatchPayload != null ? finalDispatchPayload : resolvedPayload);
+                result.put("statusCode", response.getStatusCode().value());
+                result.put("responsePayload", response.getBody() != null ? response.getBody() : "{}");
+                if (attempt > 0) {
+                    result.put("reauthenticated", true);
+                    result.put("reauthAttempts", attempt);
+                }
+
+                // Auto-cache token if response contains an access token
+                if (response.getBody() != null) {
+                    try {
+                        JsonNode respJson = objectMapper.readTree(response.getBody());
+                        String preferredField = refreshConfig != null ? refreshConfig.getResponseTokenProperty() : null;
+                        Optional<String> extracted = responseExtractor.extractToken(respJson, preferredField);
+                        if (extracted.isPresent() && !extracted.get().trim().isEmpty()) {
+                            String acquiredToken = extracted.get().trim();
+                            tokenManager.cacheToken(targetResId, acquiredToken);
+                            result.put("tokenCached", true);
+                            result.put("tokenPreview", acquiredToken.length() > 16
+                                    ? acquiredToken.substring(0, 10) + "..."
+                                    : acquiredToken);
+                            log.info("Auto-cached acquired token for resource '{}' from response payload", targetResId);
+                        }
+                    } catch (Exception ignored) {}
+                }
+
+                return ResponseEntity.ok(result);
+            } catch (RestClientResponseException e) {
+                // Check if user-configured trigger matches token expiry
+                if (refreshConfig != null && attempt < maxRetries && refreshConfig.matches(e.getStatusCode().value(), e.getResponseBodyAsString())) {
+                    log.info("Token expired based on user-configured trigger for resource '{}' (status={}). Triggering reactive re-auth attempt {}/{}...",
+                            targetResId, e.getStatusCode().value(), attempt + 1, maxRetries);
+                    attempt++;
+                    try {
+                        String freshToken = tokenManager.forceRefreshToken(targetResId);
+                        if (freshToken == null || freshToken.trim().isEmpty()) {
+                            freshToken = resolveOrAutoAcquireToken(targetResId, "");
+                        }
+                        if (freshToken != null && !freshToken.trim().isEmpty()) {
+                            token = freshToken;
+                            applyAuthorizationHeaders(resolvedHeaders, freshToken);
+                            continue; // Retry request with fresh token
+                        }
+                    } catch (Exception reauthEx) {
+                        log.warn("Reactive re-authentication failed for resource '{}': {}", targetResId, reauthEx.getMessage());
+                    }
+                }
+
+                log.warn("Test-run dispatch to {} returned HTTP error: status={}, body={}", fullUrl, e.getStatusCode(), e.getResponseBodyAsString());
+                Map<String, Object> result = new HashMap<>();
+                result.put("success", false);
+                result.put("targetUrl", fullUrl);
+                result.put("requestPayload", resolvedPayload != null ? resolvedPayload : "");
+                result.put("statusCode", e.getStatusCode().value());
+                result.put("responsePayload", e.getResponseBodyAsString() != null && !e.getResponseBodyAsString().isEmpty()
+                        ? e.getResponseBodyAsString()
+                        : "{\"error\": \"HTTP " + e.getStatusCode().value() + " " + e.getStatusText() + "\"}");
+                result.put("error", "HTTP " + e.getStatusCode().value() + " " + e.getStatusText());
+                return ResponseEntity.ok(result);
             }
-
-            if (!"GET".equalsIgnoreCase(request.getHttpMethod()) && resolvedPayload != null && !resolvedPayload.trim().isEmpty()) {
-                spec.body(resolvedPayload);
-            }
-
-            ResponseEntity<String> response = spec.retrieve().toEntity(String.class);
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", true);
-            result.put("targetUrl", fullUrl);
-            result.put("requestPayload", resolvedPayload);
-            result.put("statusCode", response.getStatusCode().value());
-            result.put("responsePayload", response.getBody() != null ? response.getBody() : "{}");
-            return ResponseEntity.ok(result);
-        } catch (RestClientResponseException e) {
-            log.warn("Test-run dispatch to {} returned HTTP error: status={}, body={}", fullUrl, e.getStatusCode(), e.getResponseBodyAsString());
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", false);
-            result.put("targetUrl", fullUrl);
-            result.put("requestPayload", resolvedPayload != null ? resolvedPayload : "");
-            result.put("statusCode", e.getStatusCode().value());
-            result.put("responsePayload", e.getResponseBodyAsString() != null && !e.getResponseBodyAsString().isEmpty()
-                    ? e.getResponseBodyAsString()
-                    : "{\"error\": \"HTTP " + e.getStatusCode().value() + " " + e.getStatusText() + "\"}");
-            result.put("error", "HTTP " + e.getStatusCode().value() + " " + e.getStatusText());
-            return ResponseEntity.ok(result);
+        }
         } catch (ResourceAccessException e) {
             String errorMsg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
             log.warn("Test-run dispatch to {} failed - Server unavailable: {}", fullUrl, errorMsg);
@@ -300,6 +384,187 @@ public class DynamicMappingController {
             result.put("error", e.getMessage() != null ? e.getMessage() : "Dispatch error");
             return ResponseEntity.ok(result);
         }
+    }
+
+    private String resolveOrAutoAcquireToken(String targetResId, String endpointUrl) {
+        String token = null;
+        try {
+            token = tokenManager.getBearerToken(targetResId);
+        } catch (Exception e) {
+            log.debug("Token retrieval failed for {}: {}", targetResId, e.getMessage());
+        }
+
+        if (token != null && !token.trim().isEmpty() && !"dummy-disabled-token".equals(token)) {
+            return token;
+        }
+
+        if (isAuthEndpoint(endpointUrl)) {
+            return null;
+        }
+
+        try {
+            List<ApiIntegrationMappingEntity> authMappings = mappingRepository
+                    .findByTargetResourceIdAndOperationTypeAndActiveTrue(targetResId, "AUTHENTICATE");
+            if (authMappings.isEmpty()) {
+                authMappings = mappingRepository
+                        .findByTargetResourceIdAndOperationTypeAndActiveTrue(targetResId, "LOGIN");
+            }
+            if (authMappings.isEmpty()) {
+                authMappings = mappingRepository
+                        .findByTargetResourceIdAndOperationTypeAndActiveTrue(targetResId, "TOKEN");
+            }
+
+            if (!authMappings.isEmpty()) {
+                ApiIntegrationMappingEntity authMapping = authMappings.get(0);
+                log.info("Auto-executing saved AUTHENTICATE mapping '{}' for resource '{}'...",
+                        authMapping.getMappingCode(), targetResId);
+                String baseUrl = tokenManager.resolveBaseUrl(targetResId);
+                String cleanBase = baseUrl != null ? baseUrl.replaceAll("/+$", "") : "";
+                String authEndpoint = authMapping.getEndpointUrl() != null ? authMapping.getEndpointUrl().trim() : "";
+                String cleanPath = authEndpoint.startsWith("/") ? authEndpoint : "/" + authEndpoint;
+                String fullAuthUrl = authEndpoint.startsWith("http") ? authEndpoint : cleanBase + cleanPath;
+
+                Map<String, Object> ctx = buildSampleContext(targetResId, null);
+                String authPayload = dynamicEngine.buildPayload(authMapping.getPayloadTemplate(), ctx);
+                Map<String, String> authHeaders = dynamicEngine.buildHeaders(authMapping.getHeadersTemplate(), ctx);
+
+                SimpleClientHttpRequestFactory rf = new SimpleClientHttpRequestFactory();
+                rf.setConnectTimeout(5000);
+                rf.setReadTimeout(10000);
+
+                RestClient authClient = RestClient.builder().requestFactory(rf).build();
+                RestClient.RequestBodySpec spec = authClient.method(
+                        HttpMethod.valueOf(authMapping.getHttpMethod() != null ? authMapping.getHttpMethod().toUpperCase() : "POST"))
+                        .uri(fullAuthUrl);
+
+                authHeaders.forEach(spec::header);
+                String ct = authHeaders.entrySet().stream()
+                        .filter(e -> "content-type".equalsIgnoreCase(e.getKey()))
+                        .map(Map.Entry::getValue)
+                        .findFirst()
+                        .orElse(MediaType.APPLICATION_JSON_VALUE);
+
+                if (ct.toLowerCase().contains("x-www-form-urlencoded")) {
+                    spec.contentType(MediaType.APPLICATION_FORM_URLENCODED);
+                    spec.body(formatPayloadForFormUrlEncoded(authPayload));
+                } else if (authPayload != null && !authPayload.trim().isEmpty()) {
+                    spec.contentType(MediaType.APPLICATION_JSON);
+                    spec.body(authPayload);
+                }
+
+                ResponseEntity<String> authResp = spec.retrieve().toEntity(String.class);
+                if (authResp.getStatusCode().is2xxSuccessful() && authResp.getBody() != null) {
+                    JsonNode root = objectMapper.readTree(authResp.getBody());
+                    TokenRefreshConfig trc = TokenRefreshConfig.fromJson(authMapping.getConditionRules());
+                    String preferredField = trc != null ? trc.getResponseTokenProperty() : null;
+                    Optional<String> ext = responseExtractor.extractToken(root, preferredField);
+                    if (ext.isPresent() && !ext.get().trim().isEmpty()) {
+                        String acquired = ext.get().trim();
+                        tokenManager.cacheToken(targetResId, acquired);
+                        log.info("Auto-acquired and cached Bearer token for resource '{}'", targetResId);
+                        return acquired;
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Auto-token acquisition via AUTHENTICATE mapping failed for '{}': {}", targetResId, ex.getMessage());
+        }
+
+        return null;
+    }
+
+    private void applyAuthorizationHeaders(Map<String, String> headers, String token) {
+        if (token == null || token.trim().isEmpty() || "dummy-disabled-token".equals(token)) {
+            return;
+        }
+        String cleanToken = token.trim();
+        String bearerValue = "Bearer " + cleanToken;
+
+        String authKey = headers.keySet().stream()
+                .filter(k -> "authorization".equalsIgnoreCase(k))
+                .findFirst().orElse(null);
+
+        if (authKey != null) {
+            String val = headers.get(authKey);
+            if (val == null || val.isBlank()
+                    || "Bearer".equalsIgnoreCase(val.trim())
+                    || "Bearer <token>".equalsIgnoreCase(val.trim())
+                    || val.contains("<token>")
+                    || val.contains("{token}")
+                    || val.contains("{{token}}")
+                    || val.contains("{{auth.token}}")
+                    || val.contains("{{auth.bearerToken}}")) {
+                headers.put(authKey, bearerValue);
+            }
+        } else {
+            headers.put("Authorization", bearerValue);
+        }
+
+        String authnKey = headers.keySet().stream()
+                .filter(k -> "authentication".equalsIgnoreCase(k))
+                .findFirst().orElse(null);
+        if (authnKey != null) {
+            String val = headers.get(authnKey);
+            if (val == null || val.isBlank() || val.contains("<token>") || val.contains("{token}")) {
+                headers.put(authnKey, cleanToken);
+            }
+        }
+    }
+
+    private boolean isAuthEndpoint(String endpointUrl) {
+        if (endpointUrl == null) return false;
+        String lower = endpointUrl.toLowerCase();
+        return lower.contains("/login") || lower.contains("/token") || lower.contains("/auth");
+    }
+
+    private String formatPayloadForFormUrlEncoded(String rawPayload) {
+        if (rawPayload == null || rawPayload.trim().isEmpty()) {
+            return rawPayload;
+        }
+        String trimmed = rawPayload.trim();
+        // If it starts with '{' and ends with '}', user provided a JSON object for form encoding
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            try {
+                JsonNode root = objectMapper.readTree(trimmed);
+                if (root.isObject()) {
+                    StringBuilder sb = new StringBuilder();
+                    Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
+                    while (fields.hasNext()) {
+                        Map.Entry<String, JsonNode> field = fields.next();
+                        if (sb.length() > 0) {
+                            sb.append("&");
+                        }
+                        String val = field.getValue().isTextual() ? field.getValue().asText() : field.getValue().toString();
+                        sb.append(URLEncoder.encode(field.getKey(), StandardCharsets.UTF_8))
+                                .append("=")
+                                .append(URLEncoder.encode(val, StandardCharsets.UTF_8));
+                    }
+                    return sb.toString();
+                }
+            } catch (Exception e) {
+                log.debug("Payload not valid JSON object, treating as raw form-encoded string: {}", e.getMessage());
+            }
+        }
+        return rawPayload;
+    }
+
+    private TokenRefreshConfig resolveTokenRefreshConfig(String targetResId) {
+        if (targetResId == null || targetResId.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            List<ApiIntegrationMappingEntity> mappings = mappingRepository.findByTargetResourceIdIgnoreCase(targetResId);
+            for (ApiIntegrationMappingEntity m : mappings) {
+                String op = m.getOperationType() != null ? m.getOperationType().toUpperCase() : "";
+                if (op.contains("AUTH") || op.contains("LOGIN") || op.contains("TOKEN")) {
+                    String rules = m.getConditionRules();
+                    if (rules != null && !rules.trim().isEmpty() && !rules.equals("[]")) {
+                        return objectMapper.readValue(rules, TokenRefreshConfig.class);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
     }
 
     private Map<String, Object> buildSampleContext(String resourceId, Map<String, Object> testContext) {

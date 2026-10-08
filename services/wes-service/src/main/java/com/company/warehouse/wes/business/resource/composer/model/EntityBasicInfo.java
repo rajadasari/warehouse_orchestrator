@@ -26,8 +26,7 @@ public class EntityBasicInfo implements Serializable {
     @Builder.Default
     private String resourceType = "REST_GENERIC";
 
-    @Builder.Default
-    private String communicationProtocol = "REST";
+    private String communicationProtocol;
 
     private String description;
 
@@ -44,6 +43,7 @@ public class EntityBasicInfo implements Serializable {
     private int defaultPort = 8080;
 
     private String documentationUrl;
+    private String responseTokenPropertyName;
 
     @Builder.Default
     private boolean active = true;

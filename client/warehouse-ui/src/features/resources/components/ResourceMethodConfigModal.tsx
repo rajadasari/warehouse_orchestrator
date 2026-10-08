@@ -218,7 +218,7 @@ export const ResourceMethodConfigModal: React.FC<ResourceMethodConfigModalProps>
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Key size={18} color="#D97706" />
-          <span>Methods & Authentication Validation</span>
+          <span>Services & Authentication Validation</span>
         </div>
       }
       subtitle={`Validation & Testing for: ${resource.resourceId} (${resource.name})`}
@@ -252,7 +252,7 @@ export const ResourceMethodConfigModal: React.FC<ResourceMethodConfigModalProps>
           </div>
         </div>
 
-        {/* Integration Method Information (Non-editable) */}
+        {/* Integration Service Information (Non-editable) */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
@@ -263,7 +263,7 @@ export const ResourceMethodConfigModal: React.FC<ResourceMethodConfigModalProps>
           backgroundColor: 'var(--bg-surface)'
         }}>
           <span style={{ fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)' }}>
-            Integration Method & Authentication Protocol
+            Integration Service & Authentication Protocol
           </span>
           <div style={{
             display: 'flex',

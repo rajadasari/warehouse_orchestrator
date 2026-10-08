@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Layers, 
-  Cpu, 
-  Sliders, 
-  Laptop, 
-  HardDrive, 
   RefreshCw, 
   Plus,
   GitCommit
@@ -15,14 +11,14 @@ import {
 } from '../../services/resourceService';
 import { Button } from '../../components/common/Button';
 import { Alert } from '../../components/common/Alert';
-import { Tabs } from '../../components/common/Tabs';
 
 // Subcomponents
-import { ResourceTable } from './components/ResourceTable';
+import { ResourceMasterDetailView } from './components/masterDetail/ResourceMasterDetailView';
 import { ResourceStudioView } from './studio/ResourceStudioView';
 import { TemplateStudioView } from './TemplateStudioView';
 import { ResourceDetailsModal } from './components/ResourceDetailsModal';
 import { ResourceMethodConfigModal } from './components/ResourceMethodConfigModal';
+import { ResourceCodeMethodModal } from './components/ResourceCodeMethodModal';
 import { PlcTagControlModal } from './components/PlcTagControlModal';
 import { ResourceRelationshipsTab } from './components/ResourceRelationshipsTab';
 import { ResourceShapesTab } from './components/ResourceShapesTab';
@@ -30,10 +26,9 @@ import { ResourceRulesTab } from './components/ResourceRulesTab';
 import { ResourceTelemetryTab } from './components/ResourceTelemetryTab';
 import { ResourceTemplatesTab } from './components/ResourceTemplatesTab';
 import { ResourceTemplateItem } from '../../services/resourceTemplateService';
-import { Boxes, Zap, Activity, FileCode } from 'lucide-react';
+import { Boxes, Zap, Activity, FileCode, Shield } from 'lucide-react';
 
-type ViewMode = 'RESOURCES' | 'TEMPLATES' | 'SHAPES' | 'RULES' | 'TELEMETRY' | 'RELATIONSHIPS' | 'RESOURCE_STUDIO' | 'TEMPLATE_STUDIO';
-type TabKey = 'ALL' | 'SOFTWARE' | 'PLC' | 'DEVICES' | 'HARDWARE';
+type ViewMode = 'SYSTEM_TEMPLATES' | 'CUSTOM_TEMPLATES' | 'TEMPLATES' | 'RESOURCES' | 'SHAPES' | 'RULES' | 'TELEMETRY' | 'RELATIONSHIPS' | 'RESOURCE_STUDIO' | 'TEMPLATE_STUDIO';
 
 export interface ResourceConfigViewProps {
   initialViewMode?: ViewMode;
@@ -48,16 +43,14 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Top Section Mode (Unified Workspace)
-  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode === 'TEMPLATES' ? 'SYSTEM_TEMPLATES' : initialViewMode);
 
   useEffect(() => {
     if (initialViewMode) {
-      setViewMode(initialViewMode);
+      setViewMode(initialViewMode === 'TEMPLATES' ? 'SYSTEM_TEMPLATES' : initialViewMode);
     }
   }, [initialViewMode]);
 
-  // Active Category Tab for Resources
-  const [activeTab, setActiveTab] = useState<TabKey>('ALL');
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
 
   // Resource Studio / Edit States
@@ -113,19 +106,6 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
     return { total, software, plc, devices, hardware };
   }, [resources]);
 
-  // Filter resources by the active tab
-  const tabFilteredResources = useMemo(() => {
-    if (activeTab === 'ALL') return resources;
-    return resources.filter(res => {
-      const t = res.type.toUpperCase();
-      if (activeTab === 'SOFTWARE') return t === 'SOFTWARE' || t === 'WMS';
-      if (activeTab === 'PLC') return t === 'PLC';
-      if (activeTab === 'DEVICES') return t === 'DEVICE' || t === 'DEVICES' || t === 'EQUIPMENT';
-      if (activeTab === 'HARDWARE') return t === 'HARDWARE';
-      return true;
-    });
-  }, [resources, activeTab]);
-
   // Action Handlers
   const handleOpenCreateModal = () => {
     setEditingResource(null);
@@ -144,6 +124,17 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
 
   const handleOpenEditTemplate = (tpl: ResourceTemplateItem) => {
     setEditingTemplate(tpl);
+    setViewMode('TEMPLATE_STUDIO');
+  };
+
+  const handleCloneTemplate = (tpl: ResourceTemplateItem) => {
+    const cloned: ResourceTemplateItem = {
+      ...tpl,
+      templateCode: `CUSTOM_${tpl.templateCode}`,
+      templateName: `${tpl.templateName} (Custom)`,
+      systemTemplate: false
+    };
+    setEditingTemplate(cloned);
     setViewMode('TEMPLATE_STUDIO');
   };
 
@@ -194,6 +185,7 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
         backgroundColor: 'var(--bg-page)'
       }}>
         <ResourceStudioView
+          key={editingResource?.resourceId || 'new'}
           editingResource={editingResource}
           onSaveSuccess={(saved) => {
             setSuccessMessage(`Resource '${saved.resourceId}' (${saved.name}) saved and activated.`);
@@ -222,14 +214,15 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
         backgroundColor: 'var(--bg-page)'
       }}>
         <TemplateStudioView
+          key={editingTemplate?.templateCode || 'new'}
           editingTemplate={editingTemplate}
           onSaveSuccess={(saved) => {
             setSuccessMessage(`Template '${saved.templateCode}' (${saved.templateName}) saved successfully.`);
-            setViewMode('TEMPLATES');
+            setViewMode(saved.systemTemplate ? 'SYSTEM_TEMPLATES' : 'CUSTOM_TEMPLATES');
             setEditingTemplate(null);
           }}
           onCancel={() => {
-            setViewMode('TEMPLATES');
+            setViewMode(editingTemplate?.systemTemplate ? 'SYSTEM_TEMPLATES' : 'CUSTOM_TEMPLATES');
             setEditingTemplate(null);
           }}
         />
@@ -264,8 +257,10 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
               margin: 0,
               letterSpacing: '-0.02em'
             }}>
-              {viewMode === 'TEMPLATES' 
-                ? 'Resource Manager: Template Definer' 
+              {viewMode === 'SYSTEM_TEMPLATES' 
+                ? 'Resource Manager: System Template Definer' 
+                : viewMode === 'CUSTOM_TEMPLATES'
+                ? 'Resource Manager: Custom Template Definer'
                 : viewMode === 'RESOURCES' 
                   ? 'Resource Manager: Resource Composer' 
                   : 'Resource Manager & Topology Workspace'}
@@ -281,12 +276,14 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
               border: '1px solid var(--color-primary-200)',
               textTransform: 'uppercase'
             }}>
-              {viewMode === 'TEMPLATES' ? 'Class Templates' : 'Live Assets'}
+              {viewMode === 'SYSTEM_TEMPLATES' ? 'System Templates' : viewMode === 'CUSTOM_TEMPLATES' ? 'Custom Templates' : 'Live Assets'}
             </span>
           </div>
           <p style={{ fontSize: '11.5px', color: 'var(--text-secondary)', margin: 0 }}>
-            {viewMode === 'TEMPLATES'
-              ? 'Author, inspect, and manage reusable industrial equipment templates, properties, and methods'
+            {viewMode === 'SYSTEM_TEMPLATES'
+              ? 'Standard platform digital twins, core operational states, and industrial protocols'
+              : viewMode === 'CUSTOM_TEMPLATES'
+              ? 'User-defined custom resource blueprints, specialized property matrices, and services'
               : 'Compose, configure, and supervise runtime physical and software resource instances'}
           </p>
         </div>
@@ -304,14 +301,14 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
             Refresh
           </Button>
 
-          {viewMode === 'TEMPLATES' ? (
+          {viewMode === 'CUSTOM_TEMPLATES' || viewMode === 'SYSTEM_TEMPLATES' ? (
             <Button
               variant="primary"
               size="sm"
               onClick={handleOpenCreateTemplate}
               leftIcon={<Plus size={13} />}
             >
-              Add Template
+              Add Custom Template
             </Button>
           ) : (
             <Button
@@ -343,8 +340,28 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
         </div>
       )}
 
-      {/* Main Workspace Navigation (Mode Switcher) */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexShrink: 0, overflowX: 'auto' }}>
+      {/* Main Workspace Navigation (3 Primary Sections + Auxiliary Tools) */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexShrink: 0, overflowX: 'auto', alignItems: 'center' }}>
+        <button
+          type="button"
+          className={`btn ${viewMode === 'SYSTEM_TEMPLATES' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          onClick={() => setViewMode('SYSTEM_TEMPLATES')}
+        >
+          <Shield size={18} />
+          <span>1. System Templates</span>
+        </button>
+
+        <button
+          type="button"
+          className={`btn ${viewMode === 'CUSTOM_TEMPLATES' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          onClick={() => setViewMode('CUSTOM_TEMPLATES')}
+        >
+          <FileCode size={18} />
+          <span>2. Custom Templates</span>
+        </button>
+
         <button
           type="button"
           className={`btn ${viewMode === 'RESOURCES' ? 'btn-primary' : 'btn-secondary'}`}
@@ -352,125 +369,92 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
           onClick={() => setViewMode('RESOURCES')}
         >
           <Layers size={18} />
-          <span>Resource Composer ({stats.total})</span>
+          <span>3. Resources ({stats.total})</span>
         </button>
 
-        <button
-          type="button"
-          className={`btn ${viewMode === 'TEMPLATES' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
-          onClick={() => setViewMode('TEMPLATES')}
-        >
-          <FileCode size={18} />
-          <span>Template Definer</span>
-        </button>
+        <div style={{ width: '1px', height: '28px', backgroundColor: 'var(--border-default)', margin: '0 4px' }} />
 
         <button
           type="button"
           className={`btn ${viewMode === 'SHAPES' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          style={{ minHeight: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
           onClick={() => setViewMode('SHAPES')}
         >
           <Boxes size={18} />
-          <span>Resource Shapes (Mixins)</span>
+          <span>Shapes</span>
         </button>
 
         <button
           type="button"
           className={`btn ${viewMode === 'RULES' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          style={{ minHeight: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
           onClick={() => setViewMode('RULES')}
         >
           <Zap size={18} />
-          <span>Reactive Rules</span>
+          <span>Rules</span>
         </button>
 
         <button
           type="button"
           className={`btn ${viewMode === 'TELEMETRY' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          style={{ minHeight: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
           onClick={() => setViewMode('TELEMETRY')}
         >
           <Activity size={18} />
-          <span>Telemetry Historian</span>
+          <span>Telemetry</span>
         </button>
 
         <button
           type="button"
           className={`btn ${viewMode === 'RELATIONSHIPS' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ minHeight: '48px', minWidth: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          style={{ minHeight: '48px', display: 'flex', alignItems: 'center', gap: '8px' }}
           onClick={() => setViewMode('RELATIONSHIPS')}
         >
           <GitCommit size={18} />
-          <span>Topology & Links</span>
+          <span>Topology</span>
         </button>
       </div>
 
       {/* View Content Body */}
       {viewMode === 'RESOURCES' && (
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          {/* Subcategory Filter Strip */}
-          <div style={{ marginBottom: '10px', flexShrink: 0 }}>
-            <Tabs<TabKey>
-              tabs={[
-                {
-                  key: 'ALL',
-                  label: 'All Resources',
-                  icon: <Layers size={14} style={{ marginRight: '6px' }} />,
-                  badge: stats.total
-                },
-                {
-                  key: 'SOFTWARE',
-                  label: 'Software & WMS',
-                  icon: <Cpu size={14} style={{ marginRight: '6px' }} />,
-                  badge: stats.software
-                },
-                {
-                  key: 'PLC',
-                  label: 'PLC Nodes',
-                  icon: <Sliders size={14} style={{ marginRight: '6px' }} />,
-                  badge: stats.plc
-                },
-                {
-                  key: 'DEVICES',
-                  label: 'Devices / Equipment',
-                  icon: <Laptop size={14} style={{ marginRight: '6px' }} />,
-                  badge: stats.devices
-                },
-                {
-                  key: 'HARDWARE',
-                  label: 'Hardware Resources',
-                  icon: <HardDrive size={14} style={{ marginRight: '6px' }} />,
-                  badge: stats.hardware
-                }
-              ]}
-              activeKey={activeTab}
-              onChange={key => setActiveTab(key)}
-            />
-          </div>
-
-          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            <ResourceTable
-              resources={tabFilteredResources}
-              isLoading={isLoading}
-              onOpenCreate={handleOpenCreateModal}
-              onOpenDetails={handleOpenDetailsModal}
-              onOpenMethods={handleOpenMethodModal}
-              onOpenPlcControl={handleOpenPlcModal}
-              onOpenEdit={handleOpenEditModal}
-              onDelete={handleDeleteResource}
-              copiedIp={copiedIp}
-              onCopyIp={handleCopyIp}
-            />
-          </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <ResourceMasterDetailView
+            resources={resources}
+            isLoading={isLoading}
+            onOpenCreate={handleOpenCreateModal}
+            onOpenEdit={handleOpenEditModal}
+            onOpenDetails={handleOpenDetailsModal}
+            onOpenMethods={handleOpenMethodModal}
+            onOpenPlcControl={handleOpenPlcModal}
+            onDelete={handleDeleteResource}
+            onRefreshAll={loadResources}
+            copiedIp={copiedIp}
+            onCopyIp={handleCopyIp}
+            onResourceUpdated={(updated) => {
+              setResources(prev => prev.map(r => r.resourceId === updated.resourceId ? updated : r));
+            }}
+          />
         </div>
       )}
 
-      {viewMode === 'TEMPLATES' && (
+      {viewMode === 'SYSTEM_TEMPLATES' && (
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <ResourceTemplatesTab
+            mode="SYSTEM"
             onOpenCreate={handleOpenCreateTemplate}
             onOpenEdit={handleOpenEditTemplate}
+            onCloneAsCustom={handleCloneTemplate}
+          />
+        </div>
+      )}
+
+      {viewMode === 'CUSTOM_TEMPLATES' && (
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <ResourceTemplatesTab
+            mode="CUSTOM"
+            onOpenCreate={handleOpenCreateTemplate}
+            onOpenEdit={handleOpenEditTemplate}
+            onCloneAsCustom={handleCloneTemplate}
           />
         </div>
       )}
@@ -506,13 +490,25 @@ export const ResourceConfigView: React.FC<ResourceConfigViewProps> = ({
         resource={selectedResourceDetails}
       />
 
-      <ResourceMethodConfigModal
-        isOpen={methodModalOpen}
-        onClose={() => setMethodModalOpen(false)}
-        resource={methodModalResource}
-        onSuccess={(msg) => setSuccessMessage(msg)}
-        onRefresh={loadResources}
-      />
+      {methodModalResource?.category?.toUpperCase() === 'SOFTWARE' ? (
+        <ResourceMethodConfigModal
+          key={methodModalResource?.resourceId || 'software-method-modal'}
+          isOpen={methodModalOpen}
+          onClose={() => setMethodModalOpen(false)}
+          resource={methodModalResource}
+          onSuccess={(msg) => setSuccessMessage(msg)}
+          onRefresh={loadResources}
+        />
+      ) : (
+        <ResourceCodeMethodModal
+          key={methodModalResource?.resourceId || 'code-method-modal'}
+          isOpen={methodModalOpen}
+          onClose={() => setMethodModalOpen(false)}
+          resource={methodModalResource}
+          onSuccess={(msg) => setSuccessMessage(msg)}
+          onRefresh={loadResources}
+        />
+      )}
 
       <PlcTagControlModal
         isOpen={plcModalOpen}

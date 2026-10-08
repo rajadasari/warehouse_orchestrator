@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Plus, 
   Network, 
@@ -8,12 +8,14 @@ import {
   Server, 
   FolderTree, 
   RefreshCw,
-  ArrowRightLeft 
+  ArrowRightLeft,
+  Trash2
 } from 'lucide-react';
 import { Button } from '../../components/common/Button';
 import { NetworkDeviceChannel } from './types';
 import { networkService } from './networkService';
 import { AddDeviceModal } from './AddDeviceModal';
+import { DeleteChannelModal } from './components/DeleteChannelModal';
 import { LiveTagExplorer } from './components/LiveTagExplorer';
 import { SessionDiagnosticsPanel } from './components/SessionDiagnosticsPanel';
 import { FunctionalSupportPanel } from './components/FunctionalSupportPanel';
@@ -26,14 +28,23 @@ export const NetworkGatewayView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SubTab>('CHANNELS');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [channelToDelete, setChannelToDelete] = useState<NetworkDeviceChannel | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadChannels = async () => {
     setIsLoading(true);
     try {
       const list = await networkService.getChannels();
       setChannels(list);
-      if (list.length > 0 && !selectedChannel) {
-        setSelectedChannel(list[0]);
+      if (list.length > 0) {
+        setSelectedChannel(prev => {
+          if (!prev) {
+            return list.find(c => c.status === 'ONLINE') || list[0];
+          }
+          return list.find(c => c.id === prev.id) || prev;
+        });
       }
     } finally {
       setIsLoading(false);
@@ -58,6 +69,55 @@ export const NetworkGatewayView: React.FC = () => {
     setSelectedChannel(channel);
     setActiveTab('DIAGNOSTICS');
   };
+
+  const handlePromptDelete = (channel: NetworkDeviceChannel) => {
+    setChannelToDelete(channel);
+    setDeleteError(null);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!channelToDelete) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await networkService.deleteChannel(channelToDelete.id);
+      if (!res.success) {
+        setDeleteError(res.message || 'Failed to delete channel');
+        return;
+      }
+      setChannels(prev => prev.filter(c => c.id !== channelToDelete.id));
+      if (selectedChannel?.id === channelToDelete.id) {
+        const remaining = channels.filter(c => c.id !== channelToDelete.id);
+        setSelectedChannel(remaining.length > 0 ? (remaining.find(c => c.status === 'ONLINE') || remaining[0]) : null);
+      }
+      setIsDeleteModalOpen(false);
+      setChannelToDelete(null);
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : 'Error deleting channel');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleTagsCountChange = useCallback((channelId: string, newCount: number) => {
+    setChannels(prev => prev.map(c => c.id === channelId ? (c.tagsCount === newCount ? c : { ...c, tagsCount: newCount }) : c));
+    setSelectedChannel(prev => {
+      if (!prev || prev.id !== channelId || prev.tagsCount === newCount) return prev;
+      return { ...prev, tagsCount: newCount };
+    });
+  }, []);
+
+  const onlineCount = channels.filter(c => c.status === 'ONLINE').length;
+  const offlineCount = channels.length - onlineCount;
+  const totalMonitoredTags = channels.reduce((sum, c) => sum + (c.tagsCount || 0), 0);
+  const protocolsList = Array.from(new Set(channels.map(c => c.protocol))).filter(Boolean);
+  const protocolSummary = protocolsList.length > 0 ? protocolsList.join(', ') : 'OPC-UA, Modbus, S7';
+
+  const channelsWithLatency = channels.filter(c => c.status === 'ONLINE' && c.latencyMs != null && c.latencyMs > 0);
+  const avgLatency = channelsWithLatency.length > 0
+    ? (channelsWithLatency.reduce((sum, c) => sum + c.latencyMs, 0) / channelsWithLatency.length).toFixed(1)
+    : (channels.length > 0 && channels[0].latencyMs != null ? channels[0].latencyMs.toFixed(1) : '0.0');
 
   return (
     <div style={{
@@ -115,10 +175,10 @@ export const NetworkGatewayView: React.FC = () => {
       {/* 2. Top Real-Time KPI Strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
         {[
-          { label: 'Configured Channels', value: `${channels.length} Total`, sub: 'OPC-UA, Modbus, S7', icon: <Server size={18} color="#3B82F6" /> },
-          { label: 'Connected Sessions', value: `${channels.filter(c => c.status === 'ONLINE').length}/${channels.length} Healthy`, sub: '0 Active Faults', icon: <CheckCircle2 size={18} color="#10B981" /> },
-          { label: 'Live Tags Monitored', value: '1,420 Tags', sub: '250ms Push Interval', icon: <Activity size={18} color="#8B5CF6" /> },
-          { label: 'Avg Network Latency', value: '3.6 ms', sub: 'Sub-millisecond jitter', icon: <Clock size={18} color="#F59E0B" /> }
+          { label: 'Configured Channels', value: `${channels.length} Total`, sub: protocolSummary, icon: <Server size={18} color="#3B82F6" /> },
+          { label: 'Connected Sessions', value: `${onlineCount}/${channels.length} Healthy`, sub: offlineCount > 0 ? `${offlineCount} Offline / Fault` : 'All Online', icon: <CheckCircle2 size={18} color={onlineCount > 0 ? "#10B981" : "#EF4444"} /> },
+          { label: 'Live Tags Monitored', value: `${totalMonitoredTags.toLocaleString()} Tag${totalMonitoredTags === 1 ? '' : 's'}`, sub: totalMonitoredTags > 0 ? 'Across Active Watchlists' : '0 Tags in Database', icon: <Activity size={18} color="#8B5CF6" /> },
+          { label: 'Avg Network Latency', value: `${avgLatency} ms`, sub: onlineCount > 0 ? 'Sub-millisecond jitter' : 'Channels Offline', icon: <Clock size={18} color="#F59E0B" /> }
         ].map((kpi, idx) => (
           <div
             key={idx}
@@ -408,6 +468,28 @@ export const NetworkGatewayView: React.FC = () => {
                 >
                   <Activity size={13} color="#10B981" /> Diagnostics
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePromptDelete(chan)}
+                  title="Delete device channel"
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-default)',
+                    backgroundColor: 'var(--bg-surface-subtle)',
+                    color: '#EF4444',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <Trash2 size={13} color="#EF4444" />
+                </button>
               </div>
             </div>
           ))}
@@ -442,7 +524,7 @@ export const NetworkGatewayView: React.FC = () => {
               ))}
             </select>
           </div>
-          <LiveTagExplorer channel={selectedChannel} />
+          <LiveTagExplorer channel={selectedChannel} onTagsCountChange={handleTagsCountChange} />
         </div>
       )}
 
@@ -513,6 +595,21 @@ export const NetworkGatewayView: React.FC = () => {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onChannelAdded={handleChannelAdded}
+      />
+
+      {/* Delete Device Channel Confirmation Modal */}
+      <DeleteChannelModal
+        channel={channelToDelete}
+        isOpen={isDeleteModalOpen}
+        isDeleting={isDeleting}
+        errorMessage={deleteError}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setChannelToDelete(null);
+          setDeleteError(null);
+        }}
+        onConfirmDelete={handleConfirmDelete}
+        onNavigateToTags={(chan) => handleOpenExplorer(chan)}
       />
     </div>
   );

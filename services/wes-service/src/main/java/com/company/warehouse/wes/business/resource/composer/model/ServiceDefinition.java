@@ -32,6 +32,14 @@ public class ServiceDefinition implements Serializable {
     @Builder.Default
     private String httpMethod = "POST";
 
+    private String language;
+
+    private String javaCode;
+
+    private String storeResultToProperty;
+
+    private String outputType;
+
     @Builder.Default
     private Map<String, Object> parametersSchema = new HashMap<>();
 
@@ -40,4 +48,7 @@ public class ServiceDefinition implements Serializable {
 
     @Builder.Default
     private Map<String, String> defaultHeaders = new HashMap<>();
+
+    @Builder.Default
+    private Map<String, Object> additionalAttributes = new HashMap<>();
 }

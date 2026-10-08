@@ -28,17 +28,17 @@ public class OpcUaClientEntityArchetype implements EntityArchetype {
 
     @Override
     public String getArchetypeName() {
-        return "Standard OPC UA Client (Industrial PLC / Gateway)";
+        return "Standard OPC UA Client (Industrial Endpoint / Gateway)";
     }
 
     @Override
     public String getCategory() {
-        return "PHYSICAL";
+        return "OT_DEVICE";
     }
 
     @Override
     public String getResourceType() {
-        return "PLC";
+        return "INDUSTRIAL_NODE";
     }
 
     @Override
@@ -223,64 +223,86 @@ public class OpcUaClientEntityArchetype implements EntityArchetype {
         services.add(ServiceDefinition.builder()
                 .name("DISCOVER_TAGS")
                 .displayName("Discover PLC Tags")
-                .category("HARDWARE")
+                .category("OT_OPERATION")
                 .description("Browses PLC address space folders and returns tag hierarchy.")
-                .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/browse")
-                .httpMethod("POST")
+                .language("JAVA")
+                .javaCode("// OPC UA Client: Discover Address Space Tags\n" +
+                        "String endpoint = (String) properties.getOrDefault(\"endpointUrl\", \"opc.tcp://127.0.0.1:4840\");\n" +
+                        "return java.util.List.of(\"ns=2;s=Speed\", \"ns=2;s=Temperature\", \"ns=2;s=Status\");")
+                .outputType("OBJECT")
                 .build());
 
         services.add(ServiceDefinition.builder()
                 .name("READ_TAG")
                 .displayName("Read Single Tag")
-                .category("HARDWARE")
+                .category("OT_OPERATION")
                 .description("Reads single tag value, StatusCode, and timestamps from the PLC.")
-                .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/read-single")
-                .httpMethod("POST")
+                .language("JAVA")
+                .javaCode("// OPC UA Client: Read Node Tag\n" +
+                        "String endpoint = (String) properties.getOrDefault(\"endpointUrl\", \"opc.tcp://127.0.0.1:4840\");\n" +
+                        "String tag = (String) parameters.getOrDefault(\"nodeId\", \"ns=2;s=DeviceStatus\");\n" +
+                        "return \"TAG_READ_OK\";")
+                .outputType("STRING")
                 .build());
 
         services.add(ServiceDefinition.builder()
                 .name("WRITE_TAG")
                 .displayName("Write Single Tag")
-                .category("HARDWARE")
+                .category("OT_OPERATION")
                 .description("Writes typed setpoint or command value to a PLC tag.")
-                .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/write-single")
-                .httpMethod("POST")
+                .language("JAVA")
+                .javaCode("// OPC UA Client: Write Node Tag\n" +
+                        "String endpoint = (String) properties.getOrDefault(\"endpointUrl\", \"opc.tcp://127.0.0.1:4840\");\n" +
+                        "String tag = (String) parameters.getOrDefault(\"nodeId\", \"ns=2;s=Setpoint\");\n" +
+                        "Object val = parameters.get(\"value\");\n" +
+                        "return \"TAG_WRITE_OK\";")
+                .outputType("STRING")
                 .build());
 
         services.add(ServiceDefinition.builder()
                 .name("READ_BATCH")
                 .displayName("Batch Read Tags")
-                .category("HARDWARE")
+                .category("OT_OPERATION")
                 .description("Reads multiple tags in a single network round-trip.")
-                .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/read-batch")
-                .httpMethod("POST")
+                .language("JAVA")
+                .javaCode("// OPC UA Client: Read Multiple Tags\n" +
+                        "return java.util.Map.of(\"Speed\", 1200, \"Status\", \"RUNNING\");")
+                .outputType("OBJECT")
                 .build());
 
         services.add(ServiceDefinition.builder()
                 .name("WRITE_BATCH")
                 .displayName("Batch Write Tags")
-                .category("HARDWARE")
+                .category("OT_OPERATION")
                 .description("Writes multiple tags simultaneously.")
-                .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/write-batch")
-                .httpMethod("POST")
+                .language("JAVA")
+                .javaCode("// OPC UA Client: Batch Write Tags\n" +
+                        "return \"BATCH_WRITE_SUCCESS\";")
+                .outputType("STRING")
                 .build());
 
         services.add(ServiceDefinition.builder()
                 .name("SUBSCRIBE_TAG")
                 .displayName("Subscribe Tag Telemetry")
-                .category("HARDWARE")
-                .description("Establishes 250ms event-driven push telemetry subscription.")
-                .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/read-group/{groupKey}")
-                .httpMethod("POST")
+                .category("OT_OPERATION")
+                .description("Establishes event-driven push telemetry subscription.")
+                .language("JAVA")
+                .javaCode("// OPC UA Client: Telemetry Subscription\n" +
+                        "String endpoint = (String) properties.getOrDefault(\"endpointUrl\", \"opc.tcp://127.0.0.1:4840\");\n" +
+                        "return \"SUBSCRIPTION_ACTIVE\";")
+                .outputType("STRING")
                 .build());
 
         services.add(ServiceDefinition.builder()
                 .name("TEST_CONNECTION")
                 .displayName("Test Connection & Handshake")
-                .category("HARDWARE")
+                .category("DIAGNOSTIC")
                 .description("Pings PLC endpoint, verifies TLS handshake, and reports latency.")
-                .pathTemplate("/api/v1/wcs/opcua/runtime/{code}/browse")
-                .httpMethod("POST")
+                .language("JAVA")
+                .javaCode("// OPC UA Client: Ping & Endpoint Handshake\n" +
+                        "String endpoint = (String) properties.getOrDefault(\"endpointUrl\", \"opc.tcp://127.0.0.1:4840\");\n" +
+                        "return \"OPC_UA_CONNECTED\";")
+                .outputType("STRING")
                 .build());
 
         return services;

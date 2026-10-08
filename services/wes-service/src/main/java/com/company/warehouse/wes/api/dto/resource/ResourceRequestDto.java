@@ -21,11 +21,9 @@ public class ResourceRequestDto {
     @NotBlank(message = "Resource name is required")
     private String name;       // e.g. "Logiqs Ambient WMS"
 
-    @NotBlank(message = "Resource type is required")
-    private String type;       // e.g. "Software", "Hardware", "PLC", "WMS"
+    private String type;       // Inherited automatically from template (e.g. "INDUSTRIAL_NODE", "REST_GENERIC")
 
-    @Builder.Default
-    private String category = "SOFTWARE"; // "HARDWARE", "DEVICE", "SOFTWARE"
+    private String category;   // Inherited automatically from template (e.g. "OT_DEVICE", "SOFTWARE", "GENERAL")
 
     private String templateCode;
 
@@ -40,8 +38,7 @@ public class ResourceRequestDto {
     @Builder.Default
     private String application = "WMS";
 
-    @Builder.Default
-    private String protocol = "http";
+    private String protocol;
 
     private String host;
 
@@ -71,7 +68,11 @@ public class ResourceRequestDto {
                 }
             }
         }
-        return "127.0.0.1";
+        // Only fallback to 127.0.0.1 if a network protocol is specified; standalone twins have null host
+        if (protocol != null && !protocol.isBlank()) {
+            return "127.0.0.1";
+        }
+        return null;
     }
 
     public Map<String, Object> getResolvedCustomProperties() {

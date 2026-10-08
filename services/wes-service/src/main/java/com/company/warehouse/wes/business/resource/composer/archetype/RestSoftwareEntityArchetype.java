@@ -62,6 +62,7 @@ public class RestSoftwareEntityArchetype implements EntityArchetype {
                 .defaultPort(8080)
                 .documentationUrl("/docs/apps/generic-rest.html")
                 .description("Configurable HTTP/REST interface supporting OAuth2, API Key, Basic Auth, and dynamic endpoint dispatch.")
+                .responseTokenPropertyName("accessToken")
                 .active(true)
                 .build();
     }

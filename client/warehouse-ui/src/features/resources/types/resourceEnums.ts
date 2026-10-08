@@ -1,4 +1,4 @@
-export type ResourceCategory = 'PHYSICAL' | 'SOFTWARE' | 'VIRTUAL' | 'LOGICAL' | string;
+export type ResourceCategory = 'GENERAL' | 'PHYSICAL' | 'OT_DEVICE' | 'SOFTWARE' | 'VIRTUAL' | 'LOGICAL' | string;
 
 export type CommunicationMethod = 
   | 'OPC_UA'
@@ -36,12 +36,26 @@ export interface MethodDefinition {
   category?: string;
   description?: string;
   snippetCode?: string;
+  javaCode?: string;
+  pythonCode?: string;
+  script?: string;
+  language?: 'JAVA' | 'PYTHON' | 'JAVASCRIPT';
+  storeResultToProperty?: string;
+  inputs?: Array<{ name: string; type: string; defaultValue?: string; description?: string }>;
+  outputType?: string;
   parametersSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
   pathTemplate?: string;
   httpMethod?: string;
   type?: string;
   safetyTier?: string;
+}
+
+export interface MethodTraceLog {
+  timestamp: string;
+  phase: string;
+  message: string;
+  level: 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR';
 }
 
 export interface MethodExecutionResult {
@@ -53,4 +67,6 @@ export interface MethodExecutionResult {
   executionTimeMs?: number;
   data?: unknown;
   error?: string;
+  traceLogs?: MethodTraceLog[];
+  updatedProperties?: Record<string, unknown>;
 }

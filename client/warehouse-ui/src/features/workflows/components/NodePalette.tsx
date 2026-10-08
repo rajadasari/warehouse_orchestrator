@@ -49,9 +49,9 @@ export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode, onDragStart
     workflowService.getAllNodeTemplates()
       .then(templates => {
         const items: PaletteItem[] = (templates || []).map((t: WorkflowNodeTemplate) => ({
-          type: (t.nodeType as any) || 'RESOURCE_ACTION',
+          type: (t.nodeType as PaletteItem['type']) || 'RESOURCE_ACTION',
           label: t.name,
-          category: (t.category as any) || 'COMPOSED',
+          category: (t.category as PaletteItem['category']) || 'COMPOSED',
           description: t.description || `Custom template ${t.templateCode}`,
           defaultConfig: t.configuration || {},
           iconName: t.icon || 'Boxes',

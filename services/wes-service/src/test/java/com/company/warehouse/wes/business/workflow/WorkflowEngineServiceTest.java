@@ -77,6 +77,9 @@ class WorkflowEngineServiceTest {
                 new TerminatorHandler()
         ));
 
+        com.company.warehouse.wes.business.workflow.validation.WorkflowGraphValidator graphValidator =
+                new com.company.warehouse.wes.business.workflow.validation.WorkflowGraphValidator(nodeRegistry);
+
         workflowEngineService = new WorkflowEngineService(
                 definitionRepository,
                 instanceRepository,
@@ -84,6 +87,7 @@ class WorkflowEngineServiceTest {
                 nodeRegistry,
                 edgeRouter,
                 structuredLogger,
+                graphValidator,
                 objectMapper
         );
     }

@@ -406,18 +406,33 @@ public class MiloOpcUaClientEngine implements OpcUaClientEngine {
             BrowseDescription desc = new BrowseDescription(
                     targetId,
                     BrowseDirection.Forward,
-                    Identifiers.References,
+                    Identifiers.HierarchicalReferences,
                     true,
-                    uint(NodeClass.Object.getValue() | NodeClass.Variable.getValue()),
+                    uint(NodeClass.Object.getValue() | NodeClass.Variable.getValue()
+                         | NodeClass.ObjectType.getValue() | NodeClass.VariableType.getValue()
+                         | NodeClass.Method.getValue()),
                     uint(BrowseResultMask.All.getValue())
             );
 
             BrowseResult result = client.browse(desc).get(config.requestTimeoutMs(), TimeUnit.MILLISECONDS);
-            ReferenceDescription[] refs = result.getReferences();
-            if (refs == null) return Collections.emptyList();
+            List<ReferenceDescription> allRefs = new ArrayList<>();
+            if (result.getReferences() != null) {
+                allRefs.addAll(Arrays.asList(result.getReferences()));
+            }
 
-            List<String> nodes = new ArrayList<>(refs.length);
-            for (ReferenceDescription r : refs) {
+            // IEC 62541 continuation point pagination
+            ByteString continuationPoint = result.getContinuationPoint();
+            while (continuationPoint != null && !continuationPoint.isNull()) {
+                BrowseResult nextResult = client.browseNext(false, continuationPoint)
+                        .get(config.requestTimeoutMs(), TimeUnit.MILLISECONDS);
+                if (nextResult.getReferences() != null) {
+                    allRefs.addAll(Arrays.asList(nextResult.getReferences()));
+                }
+                continuationPoint = nextResult.getContinuationPoint();
+            }
+
+            List<String> nodes = new ArrayList<>(allRefs.size());
+            for (ReferenceDescription r : allRefs) {
                 nodes.add(String.format("%s (%s) [%s]",
                         r.getBrowseName().getName(),
                         r.getNodeClass(),

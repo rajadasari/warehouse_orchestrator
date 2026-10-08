@@ -19,6 +19,7 @@ import com.company.warehouse.wes.business.resource.composer.model.ComposedEntity
 import com.company.warehouse.wes.business.resource.composer.validation.EntityTemplateValidator;
 import com.company.warehouse.wes.business.resource.composer.validation.EntityValidationResult;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +55,9 @@ public class ResourceManager implements ResourceConfigProvider {
     private final EntityComposerMapper composerMapper;
     private final ResourceClient resourceClient;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.company.warehouse.wes.data.repository.ApiIntegrationMappingRepository mappingRepository;
+
     // =========================================================================
     // 1. RESOURCE LIFECYCLE & INHERITANCE
     // =========================================================================
@@ -72,33 +76,48 @@ public class ResourceManager implements ResourceConfigProvider {
 
         String category = request.getCategory() != null && !request.getCategory().trim().isEmpty()
                 ? request.getCategory().trim().toUpperCase()
-                : "SOFTWARE";
+                : null;
 
         String protocol = request.getProtocol() != null && !request.getProtocol().trim().isEmpty()
-                ? request.getProtocol().trim().toLowerCase() : "http";
-        String host = request.getResolvedHost();
-        int port = request.getPort() != null && request.getPort() > 0 ? request.getPort() : 8080;
+                ? request.getProtocol().trim().toLowerCase() : null;
+        String host = protocol != null ? request.getResolvedHost() : null;
+        Integer port = protocol != null && request.getPort() != null && request.getPort() > 0 ? request.getPort() : null;
         String application = request.getApplication() != null && !request.getApplication().trim().isEmpty()
                 ? request.getApplication().trim() : "WMS";
         String description = request.getDescription() != null ? request.getDescription().trim() : null;
         String docUrl = request.getDocumentationUrl() != null ? request.getDocumentationUrl().trim() : null;
 
         Map<String, Object> tplProps = new HashMap<>();
-        if (templateCode != null) {
-            ResourceTemplateDto tpl = getTemplateByCode(templateCode);
-            if (request.getCategory() == null || request.getCategory().trim().isEmpty()) {
-                category = tpl.getCategory();
-            }
-            if ((request.getPort() == null || request.getPort() <= 0) && tpl.getDefaultPort() != null) {
-                port = tpl.getDefaultPort();
-            }
-            if ((request.getProtocol() == null || request.getProtocol().trim().isEmpty()) && tpl.getDefaultProtocol() != null) {
-                protocol = tpl.getDefaultProtocol();
-            }
-            if (tpl.getDefaultProperties() != null) {
-                tplProps.putAll(tpl.getDefaultProperties());
+        String primaryResourceType = null;
+        if (templateCode != null && !templateCode.trim().isEmpty()) {
+            String[] codes = templateCode.split(",");
+            for (String rawCode : codes) {
+                String cleanCode = rawCode.trim().toUpperCase();
+                if (cleanCode.isEmpty()) continue;
+                ResourceTemplateDto tpl = getTemplateByCode(cleanCode);
+                if (primaryResourceType == null && tpl.getResourceType() != null) {
+                    primaryResourceType = tpl.getResourceType();
+                }
+                if (category == null || category.trim().isEmpty() || "GENERAL".equalsIgnoreCase(category)) {
+                    category = tpl.getCategory();
+                } else if (!category.equalsIgnoreCase(tpl.getCategory())) {
+                    throw new IllegalArgumentException(
+                            String.format("Cannot combine templates of different categories: '%s' is %s, but expected category is %s",
+                                    cleanCode, tpl.getCategory(), category));
+                }
+                if (tpl.getDefaultProperties() != null) {
+                    tplProps.putAll(tpl.getDefaultProperties());
+                }
             }
         }
+
+        if (category == null || category.trim().isEmpty()) {
+            category = "GENERAL";
+        }
+
+        String resolvedType = request.getType() != null && !request.getType().trim().isEmpty()
+                ? request.getType().trim().toUpperCase()
+                : (primaryResourceType != null ? primaryResourceType : "GENERIC");
 
         if (request.getTemplateProperties() != null) {
             tplProps.putAll(request.getTemplateProperties());
@@ -115,7 +134,7 @@ public class ResourceManager implements ResourceConfigProvider {
                 .host(host)
                 .port(port)
                 .documentationUrl(docUrl)
-                .type(request.getType().trim().toUpperCase())
+                .type(resolvedType)
                 .category(category)
                 .templateCode(templateCode)
                 .status(request.getStatus() != null ? request.getStatus().trim().toUpperCase() : "ACTIVE")
@@ -195,22 +214,16 @@ public class ResourceManager implements ResourceConfigProvider {
         }
 
         if (request.getTemplateProperties() != null) {
-            Map<String, Object> currentTplProps = deserializeProperties(entity.getTemplateProperties());
-            currentTplProps.putAll(request.getTemplateProperties());
-            entity.setTemplateProperties(serializeProperties(currentTplProps));
+            entity.setTemplateProperties(serializeProperties(request.getTemplateProperties()));
         }
 
         Map<String, Object> resolvedCustom = request.getResolvedCustomProperties();
-        if (!resolvedCustom.isEmpty()) {
-            Map<String, Object> currentCustom = deserializeProperties(entity.getCustomProperties());
-            currentCustom.putAll(resolvedCustom);
-            entity.setCustomProperties(serializeProperties(currentCustom));
+        if (request.getCustomProperties() != null || !resolvedCustom.isEmpty()) {
+            entity.setCustomProperties(serializeProperties(resolvedCustom));
         }
 
         if (request.getMethodsConfig() != null) {
-            Map<String, Object> currentMethods = deserializeProperties(entity.getMethodsConfig());
-            currentMethods.putAll(request.getMethodsConfig());
-            entity.setMethodsConfig(serializeProperties(currentMethods));
+            entity.setMethodsConfig(serializeProperties(request.getMethodsConfig()));
         }
 
         ResourceEntity updated = resourceRepository.save(entity);
@@ -247,7 +260,46 @@ public class ResourceManager implements ResourceConfigProvider {
     public Optional<ResourceConnectionConfig> getResourceConfig(String resourceId) {
         return resourceRepository.findByResourceId(resourceId)
                 .map(entity -> {
-                    Map<String, Object> effective = resolveEffectiveProperties(entity);
+                    Map<String, Object> effective = new HashMap<>(resolveEffectiveProperties(entity));
+
+                    if (mappingRepository != null && (!effective.containsKey("tokenPath") || !effective.containsKey("auth"))) {
+                        try {
+                            var authMappings = mappingRepository
+                                    .findByTargetResourceIdAndOperationTypeAndActiveTrue(entity.getResourceId(), "AUTHENTICATE");
+                            if (authMappings.isEmpty()) {
+                                authMappings = mappingRepository
+                                        .findByTargetResourceIdAndOperationTypeAndActiveTrue(entity.getResourceId(), "LOGIN");
+                            }
+                            if (!authMappings.isEmpty()) {
+                                var authMapping = authMappings.get(0);
+                                if (!effective.containsKey("tokenPath") && authMapping.getEndpointUrl() != null) {
+                                    effective.put("tokenPath", authMapping.getEndpointUrl());
+                                }
+                                if (authMapping.getConditionRules() != null) {
+                                    try {
+                                        JsonNode crNode = objectMapper.readTree(authMapping.getConditionRules());
+                                        if (crNode.has("responseTokenProperty") && !crNode.get("responseTokenProperty").asText().isBlank()) {
+                                            effective.put("tokenResponseField", crNode.get("responseTokenProperty").asText().trim());
+                                        }
+                                    } catch (Exception ignored) {}
+                                }
+                                if (!effective.containsKey("auth") && authMapping.getPayloadTemplate() != null) {
+                                    try {
+                                        JsonNode pNode = objectMapper.readTree(authMapping.getPayloadTemplate());
+                                        if (pNode.isObject()) {
+                                            Map<String, Object> reqPayload = objectMapper.convertValue(pNode, new TypeReference<Map<String, Object>>() {});
+                                            effective.put("auth", Map.of(
+                                                    "tokenPath", authMapping.getEndpointUrl(),
+                                                    "requestPayload", reqPayload
+                                            ));
+                                        }
+                                    } catch (Exception ignored) {}
+                                }
+                            }
+                        } catch (Exception ex) {
+                            log.debug("Could not enrich resource config from api_integration_mapping: {}", ex.getMessage());
+                        }
+                    }
 
                     String ip = null;
                     if (effective.containsKey("ip")) ip = String.valueOf(effective.get("ip"));
@@ -320,18 +372,35 @@ public class ResourceManager implements ResourceConfigProvider {
         Map<String, Object> tplOverrides = deserializeProperties(resource.getTemplateProperties());
         Map<String, Object> customProps = deserializeProperties(resource.getCustomProperties());
 
-        return propertyResolutionEngine.resolve(
+        Map<String, Object> resolved = propertyResolutionEngine.resolve(
                 resource.getTemplateCode(),
                 dbDefaults,
                 tplOverrides,
                 customProps,
                 resource.getHost(),
-                resource.getPort(),
+                resource.getPort() != null ? resource.getPort() : 0,
                 resource.getProtocol(),
                 resource.getApplication(),
                 resource.getDescription(),
                 resource.getDocumentationUrl()
         );
+
+        if (resource.getTemplateCode() != null && !resource.getTemplateCode().trim().isEmpty()) {
+            String tCode = resource.getTemplateCode().trim();
+            String tokenField = templateRepository.findByTemplateCode(tCode)
+                    .map(ResourceTemplateEntity::getResponseTokenPropertyName)
+                    .filter(s -> !s.isBlank())
+                    .or(() -> archetypeRegistry.getTemplate(tCode)
+                            .map(t -> t.getBasicInfo().getResponseTokenPropertyName())
+                            .filter(s -> !s.isBlank()))
+                    .orElse(null);
+
+            if (tokenField != null) {
+                resolved.putIfAbsent("responseTokenPropertyName", tokenField.trim());
+                resolved.putIfAbsent("tokenResponseField", tokenField.trim());
+            }
+        }
+        return resolved;
     }
 
     // =========================================================================
@@ -359,8 +428,20 @@ public class ResourceManager implements ResourceConfigProvider {
 
     @Transactional
     public ResourceTemplateDto updateTemplate(String templateCode, ResourceTemplateDto dto) {
-        ResourceTemplateEntity entity = templateRepository.findByTemplateCode(templateCode.trim().toUpperCase())
-                .orElseThrow(() -> new IllegalArgumentException("Template not found: " + templateCode));
+        String cleanCode = templateCode.trim().toUpperCase();
+        ResourceTemplateEntity entity = templateRepository.findByTemplateCode(cleanCode)
+                .orElseGet(() -> {
+                    if (archetypeRegistry.hasArchetype(cleanCode)) {
+                        ComposedEntityTemplate tpl = archetypeRegistry.getTemplate(cleanCode)
+                                .orElseThrow(() -> new IllegalArgumentException("Archetype not found: " + cleanCode));
+                        ResourceTemplateEntity seeded = composerMapper.toEntity(tpl);
+                        log.info("Materialized standard system archetype '{}' into DB entity", cleanCode);
+                        return seeded;
+                    }
+                    throw new IllegalArgumentException("Template not found: " + templateCode);
+                });
+
+        boolean isSystemArchetype = archetypeRegistry.hasArchetype(cleanCode);
 
         if (dto.getTemplateName() != null && !dto.getTemplateName().trim().isEmpty()) {
             entity.setTemplateName(dto.getTemplateName().trim());
@@ -383,11 +464,16 @@ public class ResourceManager implements ResourceConfigProvider {
         if (dto.getDocumentationUrl() != null) {
             entity.setDocumentationUrl(dto.getDocumentationUrl().trim());
         }
-        if (dto.getCategory() != null && !dto.getCategory().trim().isEmpty()) {
-            entity.setCategory(dto.getCategory().trim().toUpperCase());
+        if (dto.getResponseTokenPropertyName() != null) {
+            entity.setResponseTokenPropertyName(dto.getResponseTokenPropertyName().trim());
         }
-        if (dto.getResourceType() != null && !dto.getResourceType().trim().isEmpty()) {
-            entity.setResourceType(dto.getResourceType().trim().toUpperCase());
+        if (!isSystemArchetype) {
+            if (dto.getCategory() != null && !dto.getCategory().trim().isEmpty()) {
+                entity.setCategory(dto.getCategory().trim().toUpperCase());
+            }
+            if (dto.getResourceType() != null && !dto.getResourceType().trim().isEmpty()) {
+                entity.setResourceType(dto.getResourceType().trim().toUpperCase());
+            }
         }
         if (dto.getCommunicationProtocol() != null && !dto.getCommunicationProtocol().trim().isEmpty()) {
             entity.setCommunicationProtocol(dto.getCommunicationProtocol().trim().toUpperCase());
@@ -422,6 +508,11 @@ public class ResourceManager implements ResourceConfigProvider {
                     ResourceTemplateDto dto = toTemplateDto(e);
                     if (archetypeRegistry.hasArchetype(cleanCode)) {
                         dto.setSystemTemplate(true);
+                        archetypeRegistry.getArchetype(cleanCode).ifPresent(archetype -> {
+                            dto.setCategory(archetype.getCategory());
+                            dto.setResourceType(archetype.getResourceType());
+                            dto.setCommunicationProtocol(archetype.getCommunicationProtocol());
+                        });
                     }
                     return dto;
                 })
@@ -433,7 +524,7 @@ public class ResourceManager implements ResourceConfigProvider {
                 .orElseThrow(() -> new IllegalArgumentException("Template not found: " + templateCode));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<ResourceTemplateDto> getAllTemplates(String category) {
         List<ResourceTemplateEntity> dbList;
         if (category != null && !category.trim().isEmpty()) {
@@ -447,6 +538,15 @@ public class ResourceManager implements ResourceConfigProvider {
             ResourceTemplateDto dto = toTemplateDto(e);
             if (archetypeRegistry.hasArchetype(e.getTemplateCode())) {
                 dto.setSystemTemplate(true);
+                archetypeRegistry.getArchetype(e.getTemplateCode()).ifPresent(archetype -> {
+                    dto.setCategory(archetype.getCategory());
+                    dto.setResourceType(archetype.getResourceType());
+                    dto.setCommunicationProtocol(archetype.getCommunicationProtocol());
+                    if (!archetype.getCategory().equalsIgnoreCase(e.getCategory())) {
+                        e.setCategory(archetype.getCategory());
+                        templateRepository.save(e);
+                    }
+                });
             }
             merged.put(dto.getTemplateCode().toUpperCase(), dto);
         }
@@ -688,6 +788,7 @@ public class ResourceManager implements ResourceConfigProvider {
                 .defaultHost(entity.getDefaultHost())
                 .defaultPort(entity.getDefaultPort())
                 .documentationUrl(entity.getDocumentationUrl())
+                .responseTokenPropertyName(entity.getResponseTokenPropertyName())
                 .category(entity.getCategory())
                 .resourceType(entity.getResourceType())
                 .communicationProtocol(entity.getCommunicationProtocol())

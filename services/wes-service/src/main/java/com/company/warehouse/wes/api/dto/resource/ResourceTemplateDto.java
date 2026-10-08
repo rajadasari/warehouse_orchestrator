@@ -32,9 +32,10 @@ public class ResourceTemplateDto implements Serializable {
     @NotBlank(message = "Resource type is required (e.g. CONVEYOR, TURNTABLE, AGV, PLC, BIN_LOCATION, WMS_GATEWAY)")
     private String resourceType;
 
-    @NotBlank(message = "Communication method is required (OPC_UA, PLC_S7, MODBUS_TCP, SERIAL, MQTT/VDA5050, REST, INTERNAL)")
+    @Deprecated
     private String communicationProtocol;
 
+    @Deprecated
     private String communicationMethod;
 
     public String getCommunicationMethod() {
@@ -43,9 +44,7 @@ public class ResourceTemplateDto implements Serializable {
 
     public void setCommunicationMethod(String method) {
         this.communicationMethod = method;
-        if (this.communicationProtocol == null || this.communicationProtocol.isBlank()) {
-            this.communicationProtocol = method;
-        }
+        this.communicationProtocol = method;
     }
 
     private String description;
@@ -54,6 +53,7 @@ public class ResourceTemplateDto implements Serializable {
     private String defaultHost;
     private Integer defaultPort;
     private String documentationUrl;
+    private String responseTokenPropertyName;
 
     private List<Map<String, Object>> propertySchema;
 

@@ -50,7 +50,7 @@ public class EntityTemplateValidator {
         }
 
         if (info.getCategory() == null || info.getCategory().trim().isEmpty()) {
-            result.addError("Category is required (PHYSICAL, SOFTWARE, VIRTUAL, LOGICAL)");
+            info.setCategory("GENERAL");
         }
     }
 

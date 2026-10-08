@@ -94,8 +94,14 @@ public class Resource implements Serializable {
         return templateCode;
     }
 
-    public void setTemplateCode(String templateCode) {
+    public synchronized void updateTemplateCode(String templateCode, long expectedVersion) {
+        verifyAndAdvanceCas(expectedVersion);
         this.templateCode = templateCode;
+    }
+
+    public synchronized void setTemplateCode(String templateCode) {
+        this.templateCode = templateCode;
+        this.lastModifiedAt = Instant.now();
     }
 
     private void verifyAndAdvanceCas(long expectedVersion) {

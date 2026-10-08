@@ -10,13 +10,19 @@ import org.platform.resourcemanager.domain.model.Resource;
 import org.platform.resourcemanager.domain.model.ResourceId;
 import org.platform.resourcemanager.domain.topology.OperationalGraph;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
  * Application service managing PackML / SEMI E10 state transitions and safety propagation.
  */
 public class ResourceStateService {
+
+    private static final Logger log = LoggerFactory.getLogger(ResourceStateService.class);
 
     private final ResourceRepositoryPort repository;
     private final StateTransitionEngine transitionEngine;
@@ -70,22 +76,40 @@ public class ResourceStateService {
     private void cascadeSafetyStop(ResourceId originId, String triggerName) {
         Set<ResourceId> interlocked = topologyGraph.findInterlockedResources(originId);
         for (ResourceId neighborId : interlocked) {
-            repository.findById(neighborId).ifPresent(neighbor -> {
-                try {
-                    ResourceState oldState = neighbor.getState();
-                    if (!(oldState instanceof CoreStates.Aborted) && !(oldState instanceof CoreStates.Faulted)) {
-                        ResourceState aborted = new CoreStates.Aborted();
-                        neighbor.updateState(aborted, neighbor.getVersion());
-                        repository.save(neighbor);
-                        auditLogger.log(neighborId, "SAFETY_INTERLOCK_CASCADE",
-                                "Cascaded abort from origin " + originId + " (trigger: " + triggerName + ")",
-                                neighbor.getVersion());
-                        eventPublisher.publish(ResourceStateChangedEvent.of(neighborId, oldState, aborted,
-                                CoreTriggers.abort("Interlock cascade from " + originId)));
-                    }
-                } catch (Exception ignored) {
+            boolean abortedSuccessfully = false;
+            Exception lastException = null;
+            for (int attempt = 1; attempt <= 3 && !abortedSuccessfully; attempt++) {
+                Optional<Resource> neighborOpt = repository.findById(neighborId);
+                if (neighborOpt.isEmpty()) {
+                    break;
                 }
-            });
+                Resource neighbor = neighborOpt.get();
+                ResourceState oldState = neighbor.getState();
+                if (oldState instanceof CoreStates.Aborted || oldState instanceof CoreStates.Faulted) {
+                    abortedSuccessfully = true;
+                    break;
+                }
+                try {
+                    ResourceState aborted = new CoreStates.Aborted();
+                    neighbor.updateState(aborted, neighbor.getVersion());
+                    repository.save(neighbor);
+                    auditLogger.log(neighborId, "SAFETY_INTERLOCK_CASCADE",
+                            "Cascaded abort from origin " + originId + " (trigger: " + triggerName + ")",
+                            neighbor.getVersion());
+                    eventPublisher.publish(ResourceStateChangedEvent.of(neighborId, oldState, aborted,
+                            CoreTriggers.abort("Interlock cascade from " + originId)));
+                    abortedSuccessfully = true;
+                    log.warn("Successfully cascaded safety abort to interlocked neighborId={} from originId={}", neighborId, originId);
+                } catch (Exception ex) {
+                    lastException = ex;
+                    log.warn("Retrying safety abort for neighborId={} from originId={} (attempt {}/3): {}",
+                            neighborId, originId, attempt, ex.getMessage());
+                }
+            }
+            if (!abortedSuccessfully && lastException != null) {
+                log.error("SAFETY_CRITICAL: Failed to abort interlocked neighborId={} during safety cascade from originId={}",
+                        neighborId, originId, lastException);
+            }
         }
     }
 }

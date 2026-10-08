@@ -31,6 +31,10 @@ spring:
           uri: http://localhost:8084
           predicates:
             - Path=/api/v1/fleet/**
+        - id: analysis-service
+          uri: ${ANALYSIS_SERVICE_URL:http://localhost:8095}
+          predicates:
+            - Path=/api/v1/analysis/**
 
 management:
   endpoints:
@@ -40,3 +44,4 @@ management:
   endpoint:
     health:
       show-details: always
+

@@ -7,7 +7,8 @@ import {
   Layers,
   Sliders,
   Cpu,
-  Circle
+  Circle,
+  Globe
 } from 'lucide-react';
 import { 
   ResourceTemplateItem, 
@@ -20,6 +21,7 @@ import { MethodDefinition } from './types/resourceEnums';
 import { TemplateIdentityTab } from './components/templateStudio/TemplateIdentityTab';
 import { TemplatePropertiesTab } from './components/templateStudio/TemplatePropertiesTab';
 import { TemplateCustomMethodsTab } from './components/templateStudio/TemplateCustomMethodsTab';
+import { TemplateApiMethodsTab } from './components/templateStudio/TemplateApiMethodsTab';
 import { Button } from '../../components/common/Button';
 import { Alert } from '../../components/common/Alert';
 
@@ -39,14 +41,12 @@ interface TabDefinition {
   icon: React.ReactNode;
 }
 
-const TEMPLATE_TABS: TabDefinition[] = [
-  { key: 'IDENTITY', label: 'Identity & Info', sublabel: 'Code, Name, Category & Type', icon: <Layers size={15} /> },
-  { key: 'PROPERTIES', label: 'Properties Matrix', sublabel: 'Variables, Units & Telemetry', icon: <Sliders size={15} /> },
-  { key: 'METHODS', label: 'Operations & Methods', sublabel: 'Commands & Safety Tiering', icon: <Cpu size={15} /> }
-];
+
 
 const CATEGORIES = [
+  { key: 'GENERAL', label: 'General', desc: 'Universal digital twin (open domain / generic asset)' },
   { key: 'PHYSICAL', label: 'Physical', desc: 'Shop-floor machines, AMRs, conveyors, sorters' },
+  { key: 'OT_DEVICE', label: 'OT Device', desc: 'Industrial equipment & fieldbus protocols (OPC UA, Modbus, S7, MQTT)' },
   { key: 'SOFTWARE', label: 'Software', desc: 'WMS/ERP connectors, external web services' },
   { key: 'VIRTUAL', label: 'Virtual', desc: 'Digital twins, simulated machine replicas' },
   { key: 'LOGICAL', label: 'Logical', desc: 'Bins, pick zones, workflow queues' }
@@ -71,13 +71,11 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
   // Form State (Identity)
   const [templateCode, setTemplateCode] = useState(editingTemplate?.templateCode || '');
   const [templateName, setTemplateName] = useState(editingTemplate?.templateName || '');
-  const [category, setCategory] = useState(editingTemplate?.category || 'PHYSICAL');
-  const [resourceType, setResourceType] = useState(editingTemplate?.resourceType || 'CONVEYOR');
-  const [communicationMethod, setCommunicationMethod] = useState(
-    editingTemplate?.communicationMethod || editingTemplate?.communicationProtocol || 'OPC_UA'
-  );
+  const [category, setCategory] = useState(editingTemplate?.category || 'GENERAL');
+  const [resourceType, setResourceType] = useState(editingTemplate?.resourceType || 'PHYSICAL_ASSET');
   const [description, setDescription] = useState(editingTemplate?.description || '');
   const [documentationUrl, setDocumentationUrl] = useState(editingTemplate?.documentationUrl || '');
+  const [responseTokenPropertyName, setResponseTokenPropertyName] = useState(editingTemplate?.responseTokenPropertyName || '');
 
   // Properties State (User defined properties matrix)
   const [properties, setProperties] = useState<PropertySchemaItem[]>([]);
@@ -96,15 +94,30 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
     methods: string;
   } | null>(null);
 
+  const isSoftware = useMemo(() => {
+    return (category || 'GENERAL').toUpperCase() === 'SOFTWARE';
+  }, [category]);
+
+  const templateTabs: TabDefinition[] = useMemo(() => [
+    { key: 'IDENTITY', label: 'Identity & Info', sublabel: 'Code, Name, Category & Type', icon: <Layers size={15} /> },
+    { key: 'PROPERTIES', label: 'Properties Matrix', sublabel: 'Variables, Units & Telemetry', icon: <Sliders size={15} /> },
+    { 
+      key: 'METHODS', 
+      label: isSoftware ? 'API Services & Endpoints' : 'Services Matrix & Code', 
+      sublabel: isSoftware ? 'REST Endpoints & Payloads' : 'Java & Python Services', 
+      icon: isSoftware ? <Globe size={15} /> : <Cpu size={15} /> 
+    }
+  ], [isSoftware]);
+
   useEffect(() => {
     if (editingTemplate) {
       setTemplateCode(editingTemplate.templateCode);
       setTemplateName(editingTemplate.templateName);
-      setCategory(editingTemplate.category || 'PHYSICAL');
+      setCategory(editingTemplate.category || 'GENERAL');
       setResourceType(editingTemplate.resourceType || '');
-      setCommunicationMethod(editingTemplate.communicationMethod || editingTemplate.communicationProtocol || 'OPC_UA');
       setDescription(editingTemplate.description || '');
       setDocumentationUrl(editingTemplate.documentationUrl || '');
+      setResponseTokenPropertyName(editingTemplate.responseTokenPropertyName || '');
 
       const loadedProps: PropertySchemaItem[] = [...(editingTemplate.propertySchema || [])];
       setProperties(loadedProps);
@@ -121,9 +134,9 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
           name: editingTemplate.templateName,
           cat: editingTemplate.category || 'PHYSICAL',
           resType: editingTemplate.resourceType || '',
-          comm: editingTemplate.communicationMethod || editingTemplate.communicationProtocol || 'OPC_UA',
           desc: editingTemplate.description || '',
-          doc: editingTemplate.documentationUrl || ''
+          doc: editingTemplate.documentationUrl || '',
+          tokenField: editingTemplate.responseTokenPropertyName || ''
         }),
         properties: JSON.stringify(loadedProps),
         methods: JSON.stringify({ methods: loadedMethods, cmds })
@@ -131,11 +144,11 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
     } else {
       setTemplateCode('');
       setTemplateName('');
-      setCategory('PHYSICAL');
-      setResourceType('CONVEYOR');
-      setCommunicationMethod('OPC_UA');
+      setCategory('GENERAL');
+      setResourceType('PHYSICAL_ASSET');
       setDescription('');
       setDocumentationUrl('');
+      setResponseTokenPropertyName('');
       setProperties([]);
       setMethods([]);
       setSupportedCommands([]);
@@ -148,7 +161,8 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
           resType: 'CONVEYOR',
           comm: 'OPC_UA',
           desc: '',
-          doc: ''
+          doc: '',
+          tokenField: ''
         }),
         properties: JSON.stringify([]),
         methods: JSON.stringify({ methods: [], cmds: [] })
@@ -167,9 +181,9 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
       name: templateName,
       cat: category,
       resType: resourceType,
-      comm: communicationMethod,
       desc: description,
-      doc: documentationUrl
+      doc: documentationUrl,
+      tokenField: responseTokenPropertyName
     });
 
     const currentProperties = JSON.stringify(properties);
@@ -186,7 +200,6 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
     templateName,
     category,
     resourceType,
-    communicationMethod,
     description,
     documentationUrl,
     properties,
@@ -236,20 +249,45 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
 
   // Method Handlers
   const handleAddMethod = () => {
-    setMethods([
-      ...methods,
-      {
-        name: `method_${methods.length + 1}`,
-        displayName: `Method ${methods.length + 1}`,
-        category: 'CUSTOM',
-        description: 'Operation execution service'
-      }
-    ]);
+    if (isSoftware) {
+      setMethods([
+        ...methods,
+        {
+          name: `API_METHOD_${methods.length + 1}`,
+          displayName: `API Method ${methods.length + 1}`,
+          category: 'SOFTWARE_API',
+          description: 'REST API endpoint invocation',
+          httpMethod: 'POST',
+          pathTemplate: `/api/v1/resource/endpoint-${methods.length + 1}`,
+          safetyTier: 'LOW_IMPACT',
+          inputs: [],
+          outputType: 'JSON'
+        }
+      ]);
+    } else {
+      setMethods([
+        ...methods,
+        {
+          name: `METHOD_${methods.length + 1}`,
+          displayName: `Method ${methods.length + 1}`,
+          category: 'CUSTOM',
+          description: '',
+          language: 'JAVA',
+          javaCode: '// Dynamic Java Logic\nreturn null;',
+          inputs: [],
+          outputType: 'OBJECT'
+        }
+      ]);
+    }
   };
 
   const handleUpdateMethod = (index: number, patch: Partial<MethodDefinition>) => {
     const updated = [...methods];
-    updated[index] = { ...updated[index], ...patch };
+    if (index >= updated.length) {
+      updated.push(patch as MethodDefinition);
+    } else {
+      updated[index] = { ...updated[index], ...patch };
+    }
     setMethods(updated);
   };
 
@@ -305,16 +343,18 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
     const payload: ResourceTemplateItem = {
       templateCode: templateCode.trim().toUpperCase(),
       templateName: templateName.trim(),
-      category: category.trim().toUpperCase(),
+      category: (category || 'GENERAL').trim().toUpperCase(),
       resourceType: resourceType.trim().toUpperCase(),
-      communicationProtocol: communicationMethod,
-      communicationMethod,
+      communicationMethod: 'INTERNAL',
+      communicationProtocol: 'INTERNAL',
       description: description.trim(),
       documentationUrl: documentationUrl.trim(),
+      responseTokenPropertyName: responseTokenPropertyName.trim() || undefined,
       propertySchema: properties,
       defaultProperties: defaultPropsMap,
       methodsSchema: methods,
       supportedCommands,
+      systemTemplate: editingTemplate?.systemTemplate ?? false,
       active: true
     };
 
@@ -400,7 +440,7 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
-            {properties.length} Properties &bull; {methods.length} Methods
+            {properties.length} Properties &bull; {methods.length} Services
           </span>
 
           <Button
@@ -453,7 +493,7 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
           flexShrink: 0
         }}
       >
-        {TEMPLATE_TABS.map(tab => {
+        {templateTabs.map(tab => {
           const isActive = activeTab === tab.key;
           const isUnsaved = unsavedTabs[tab.key];
 
@@ -569,6 +609,7 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
         {activeTab === 'IDENTITY' && (
           <TemplateIdentityTab
             isEditing={isEditing}
+            isSystemTemplate={editingTemplate?.systemTemplate}
             templateCode={templateCode}
             setTemplateCode={setTemplateCode}
             templateName={templateName}
@@ -581,6 +622,8 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
             setDescription={setDescription}
             documentationUrl={documentationUrl}
             setDocumentationUrl={setDocumentationUrl}
+            responseTokenPropertyName={responseTokenPropertyName}
+            setResponseTokenPropertyName={setResponseTokenPropertyName}
             isCodeDuplicate={isCodeDuplicate}
             categories={CATEGORIES}
           />
@@ -597,17 +640,35 @@ export const TemplateStudioView: React.FC<TemplateStudioViewProps> = ({
         )}
 
         {activeTab === 'METHODS' && (
-          <TemplateCustomMethodsTab
-            customMethods={methods}
-            handleAddCustomMethod={handleAddMethod}
-            handleUpdateCustomMethod={handleUpdateMethod}
-            handleRemoveCustomMethod={handleRemoveMethod}
-            commandInput={commandInput}
-            setCommandInput={setCommandInput}
-            supportedCommands={supportedCommands}
-            handleAddCommand={handleAddCommand}
-            handleRemoveCommand={handleRemoveCommand}
-          />
+          isSoftware ? (
+            <TemplateApiMethodsTab
+              methods={methods}
+              availableProperties={properties.map(p => p.key)}
+              templateProperties={properties}
+              handleAddMethod={handleAddMethod}
+              handleUpdateMethod={handleUpdateMethod}
+              handleRemoveMethod={handleRemoveMethod}
+              commandInput={commandInput}
+              setCommandInput={setCommandInput}
+              supportedCommands={supportedCommands}
+              handleAddCommand={handleAddCommand}
+              handleRemoveCommand={handleRemoveCommand}
+            />
+          ) : (
+            <TemplateCustomMethodsTab
+              customMethods={methods}
+              availableProperties={properties.map(p => p.key)}
+              templateProperties={properties}
+              handleAddCustomMethod={handleAddMethod}
+              handleUpdateCustomMethod={handleUpdateMethod}
+              handleRemoveCustomMethod={handleRemoveMethod}
+              commandInput={commandInput}
+              setCommandInput={setCommandInput}
+              supportedCommands={supportedCommands}
+              handleAddCommand={handleAddCommand}
+              handleRemoveCommand={handleRemoveCommand}
+            />
+          )
         )}
       </div>
     </div>

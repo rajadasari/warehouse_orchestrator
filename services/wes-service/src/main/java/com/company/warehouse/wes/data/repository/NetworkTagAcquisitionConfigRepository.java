@@ -16,5 +16,11 @@ public interface NetworkTagAcquisitionConfigRepository extends JpaRepository<Net
 
     List<NetworkTagAcquisitionConfigEntity> findByTagIdIn(Collection<UUID> tagIds);
 
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
     void deleteByTagId(UUID tagId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    void deleteByTagIdIn(Collection<UUID> tagIds);
 }

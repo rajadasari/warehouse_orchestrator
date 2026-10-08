@@ -64,4 +64,28 @@ class TelemetryHistorianTest {
         // Newest should be index 7 (value 10.5)
         assertEquals(10.5, results.get(0).value());
     }
+
+    @Test
+    @DisplayName("Should handle high continuous iterations without ArrayIndexOutOfBoundsException")
+    void shouldHandleContinuousIterationsWithoutException() {
+        RingBufferTelemetryStore store = new RingBufferTelemetryStore(10);
+        ResourceId resId = ResourceId.of("T1", "HIGH_FREQ_SENSOR");
+        Instant now = Instant.now();
+
+        // Write 2500 entries continuously
+        for (int i = 0; i < 2500; i++) {
+            store.record(new TelemetryDataPoint(
+                    resId,
+                    "temp",
+                    (double) i,
+                    DataCollectionType.SAMPLE_WINDOW,
+                    now.plusMillis(i * 10),
+                    java.util.Map.of()
+            ));
+        }
+
+        List<TelemetryDataPoint> query = store.queryRange(resId, "temp", null, null, 5);
+        assertEquals(5, query.size());
+        assertEquals(2499.0, query.get(0).value());
+    }
 }

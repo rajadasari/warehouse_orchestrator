@@ -89,10 +89,7 @@ public class RingBufferTelemetryStore implements TelemetryHistorianPort {
         }
 
         public synchronized void add(TelemetryDataPoint point) {
-            int idx = head.getAndIncrement() % capacity;
-            if (idx < 0) {
-                idx = Math.abs(idx);
-            }
+            int idx = Math.floorMod(head.getAndIncrement(), capacity);
             buffer[idx] = point;
             if (size.get() < capacity) {
                 size.incrementAndGet();
@@ -106,10 +103,7 @@ public class RingBufferTelemetryStore implements TelemetryHistorianPort {
 
             // Walk newest to oldest
             for (int i = 0; i < count && matches.size() < limit; i++) {
-                int index = (currentHead - 1 - i) % capacity;
-                if (index < 0) {
-                    index += capacity;
-                }
+                int index = Math.floorMod(currentHead - 1 - i, capacity);
                 TelemetryDataPoint pt = buffer[index];
                 if (pt != null) {
                     boolean afterFrom = (from == null) || !pt.timestamp().isBefore(from);

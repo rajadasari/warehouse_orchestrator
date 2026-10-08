@@ -21,19 +21,20 @@
 param(
     [ValidateSet("status", "start", "stop", "restart", "logs", "uninstall")]
     [string]$Action = "status",
-    [ValidateSet("all", "auth", "wes", "wms", "wcs", "asrs", "fleet", "gateway")]
+    [ValidateSet("all", "auth", "wes", "wms", "wcs", "asrs", "fleet", "gateway", "analysis")]
     [string]$Service = "all",
     [string]$InstallPath = "C:\warehouse-platform"
 )
 
 $servicesOrderForward = @(
-    @{ id = "warehouse-auth";    name = "Auth Service";    port = 8085; log = "auth-service" },
-    @{ id = "warehouse-wcs";     name = "WCS Service";     port = 8083; log = "wcs-service" },
-    @{ id = "warehouse-asrs";    name = "ASRS Service";    port = 8087; log = "asrs-wcs-service" },
-    @{ id = "warehouse-fleet";   name = "Fleet Service";   port = 8084; log = "fleet-service" },
-    @{ id = "warehouse-wms";     name = "WMS Service";     port = 8082; log = "wms-service" },
-    @{ id = "warehouse-wes";     name = "WES Service";     port = 8086; log = "wes-service" },
-    @{ id = "warehouse-gateway"; name = "Gateway/UI";      port = 8080; log = "gateway-service" }
+    @{ id = "warehouse-auth";     name = "Auth Service";     port = 8085; log = "auth-service" },
+    @{ id = "warehouse-wcs";      name = "WCS Service";      port = 8083; log = "wcs-service" },
+    @{ id = "warehouse-asrs";     name = "ASRS Service";     port = 8087; log = "asrs-wcs-service" },
+    @{ id = "warehouse-fleet";    name = "Fleet Service";    port = 8084; log = "fleet-service" },
+    @{ id = "warehouse-wms";      name = "WMS Service";      port = 8082; log = "wms-service" },
+    @{ id = "warehouse-wes";      name = "WES Service";      port = 8086; log = "wes-service" },
+    @{ id = "warehouse-analysis"; name = "Analysis Service"; port = 8095; log = "analysis-service"; healthPath = "/api/v1/analysis/stations" },
+    @{ id = "warehouse-gateway";  name = "Gateway/UI";       port = 8080; log = "gateway-service" }
 )
 
 $servicesOrderReverse = @($servicesOrderForward)
@@ -48,9 +49,11 @@ switch ($Action) {
             $scmStatus = if ($svcObj) { $svcObj.Status } else { "NOT_INSTALLED" }
 
             $actuatorStatus = "OFFLINE"
+            $healthUrl = if ($s.healthPath) { "http://localhost:$($s.port)$($s.healthPath)" } else { "http://localhost:$($s.port)/actuator/health" }
             try {
-                $res = Invoke-RestMethod -Uri "http://localhost:$($s.port)/actuator/health" -TimeoutSec 2 -ErrorAction Stop
+                $res = Invoke-RestMethod -Uri $healthUrl -TimeoutSec 2 -ErrorAction Stop
                 if ($res.status) { $actuatorStatus = $res.status }
+                elseif ($res.stations -ne $null -or $res -ne $null) { $actuatorStatus = "UP" }
             } catch {
                 $actuatorStatus = "UNREACHABLE"
             }
@@ -83,6 +86,10 @@ switch ($Action) {
         Start-Service warehouse-wms -ErrorAction SilentlyContinue
         Start-Service warehouse-wes -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 6
+
+        Write-Host "Phase 3b: Telemetry Analysis (warehouse-analysis)..." -ForegroundColor Yellow
+        Start-Service warehouse-analysis -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
 
         Write-Host "Phase 4: API Gateway (warehouse-gateway)..." -ForegroundColor Yellow
         Start-Service warehouse-gateway -ErrorAction SilentlyContinue

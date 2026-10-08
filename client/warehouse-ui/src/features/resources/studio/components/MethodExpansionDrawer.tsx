@@ -11,6 +11,7 @@ import {
   SimulationResult,
 } from './MethodSimulationBox';
 import { computeSyntheticEndpoint } from '../endpointUtils';
+import { TokenLifecycleCard, TokenRefreshConfig } from './TokenLifecycleCard';
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -34,6 +35,8 @@ export interface MethodDrawerConfig {
   pathVariables: Record<string, string>;
   /** Backend mapping UUID (set once persisted to api_integration_mapping). */
   mappingId?: string;
+  /** Configurable token expiry and reactive re-auth triggers (for auth methods). */
+  tokenRefreshConfig?: TokenRefreshConfig;
 }
 
 export interface AvailableProperty {
@@ -99,6 +102,14 @@ export const HEADER_PRESETS = [
   }
 ] as const;
 
+export const BODY_FORMAT_OPTIONS = [
+  { label: 'JSON (application/json)', value: 'application/json', defaultPayload: '{\n  \n}' },
+  { label: 'Form URL-Encoded (application/x-www-form-urlencoded)', value: 'application/x-www-form-urlencoded', defaultPayload: 'username={{clientId}}&password={{clientSecret}}' },
+  { label: 'XML (application/xml)', value: 'application/xml', defaultPayload: '<request>\n  \n</request>' },
+  { label: 'Plain Text (text/plain)', value: 'text/plain', defaultPayload: '' },
+  { label: 'None (No Body)', value: 'none', defaultPayload: '' },
+] as const;
+
 const TEXTAREA_STYLE: React.CSSProperties = {
   width: '100%',
   padding: '10px 12px',
@@ -133,11 +144,30 @@ export const MethodExpansionDrawer: React.FC<MethodExpansionDrawerProps> = ({
 
   /* ---------- derived state ---------- */
 
+  const isPassive = ['internal', 'in_memory', 'push', 'event_driven', 'passive', 'logical', 'none'].includes((protocol || '').toLowerCase());
   const effectivePort = config.port || String(defaultPort || '');
   const baseEndpoint = computeSyntheticEndpoint(host, Number(effectivePort) || undefined, protocol);
 
+  const isAuthMethod = useMemo(() => {
+    const normName = (methodName || '').toUpperCase();
+    const normCode = (config.operationCode || '').toUpperCase();
+    const normType = (methodType || '').toUpperCase();
+    return (
+      normType === 'AUTHENTICATION' ||
+      normName.includes('AUTH') ||
+      normName.includes('LOGIN') ||
+      normName.includes('TOKEN') ||
+      normCode.includes('AUTH') ||
+      normCode.includes('LOGIN') ||
+      normCode.includes('TOKEN')
+    );
+  }, [methodName, config.operationCode, methodType]);
+
   /** Fully resolved URL with path variables substituted. */
   const resolvedUrl = useMemo(() => {
+    if (isPassive) {
+      return `in-memory://${methodName || 'method'}`;
+    }
     let url = `${baseEndpoint}${config.urlPath.startsWith('/') ? '' : '/'}${config.urlPath}`;
     const vars = extractPathVariables(config.urlPath);
     vars.forEach(v => {
@@ -145,7 +175,7 @@ export const MethodExpansionDrawer: React.FC<MethodExpansionDrawerProps> = ({
       url = url.replace(`{${v}}`, val);
     });
     return url;
-  }, [baseEndpoint, config.urlPath, config.pathVariables]);
+  }, [baseEndpoint, config.urlPath, config.pathVariables, isPassive, methodName]);
 
   /* ---------- handlers ---------- */
 
@@ -188,9 +218,83 @@ export const MethodExpansionDrawer: React.FC<MethodExpansionDrawerProps> = ({
     [config.payloadTemplate, handleFieldChange],
   );
 
+  const currentBodyFormat = useMemo(() => {
+    try {
+      const parsed = JSON.parse(config.headersTemplate || '{}');
+      const ctKey = Object.keys(parsed).find(k => k.toLowerCase() === 'content-type');
+      if (ctKey && parsed[ctKey]) {
+        const val = String(parsed[ctKey]).toLowerCase();
+        if (val.includes('x-www-form-urlencoded')) return 'application/x-www-form-urlencoded';
+        if (val.includes('xml')) return 'application/xml';
+        if (val.includes('text/plain')) return 'text/plain';
+        if (val.includes('json')) return 'application/json';
+        return String(parsed[ctKey]);
+      }
+    } catch {
+      // ignore parse error
+    }
+    return 'application/json';
+  }, [config.headersTemplate]);
+
+  const handleBodyFormatChange = useCallback((newFormat: string) => {
+    let headersObj: Record<string, string> = {};
+    try {
+      headersObj = JSON.parse(config.headersTemplate || '{}');
+    } catch {
+      headersObj = {};
+    }
+
+    const existingKey = Object.keys(headersObj).find(k => k.toLowerCase() === 'content-type');
+    if (existingKey) {
+      delete headersObj[existingKey];
+    }
+
+    if (newFormat !== 'none') {
+      headersObj['Content-Type'] = newFormat;
+      if (!Object.keys(headersObj).some(k => k.toLowerCase() === 'accept')) {
+        headersObj['Accept'] = newFormat.includes('json') ? 'application/json' : '*/*';
+      }
+    }
+
+    const updatedHeaders = JSON.stringify(headersObj, null, 2);
+    handleFieldChange('headersTemplate', updatedHeaders);
+
+    const trimmed = config.payloadTemplate.trim();
+    if (!trimmed || trimmed === '{\n  \n}' || trimmed === '{}' || trimmed === '<request>\n  \n</request>' || trimmed === 'username={{clientId}}&password={{clientSecret}}') {
+      const option = BODY_FORMAT_OPTIONS.find(o => o.value === newFormat);
+      if (option && option.defaultPayload !== undefined) {
+        handleFieldChange('payloadTemplate', option.defaultPayload);
+      }
+    }
+  }, [config.headersTemplate, config.payloadTemplate, handleFieldChange]);
+
+  const payloadPlaceholder = useMemo(() => {
+    if (currentBodyFormat === 'application/x-www-form-urlencoded') {
+      return 'username={{clientId}}&password={{clientSecret}}\n\n(or JSON key-values: {"username": "{{clientId}}", "password": "{{clientSecret}}"})';
+    }
+    if (currentBodyFormat === 'application/xml') {
+      return '<request>\n  <palletId>{{pallet.lpn}}</palletId>\n</request>';
+    }
+    if (currentBodyFormat === 'text/plain') {
+      return 'Raw text payload...';
+    }
+    return '{\n  "palletId": "{{pallet.lpn}}",\n  "quantity": {{pallet.quantity}},\n  "timestamp": "{{fn.now}}"\n}';
+  }, [currentBodyFormat]);
+
   const handleSimulate = useCallback(async (): Promise<SimulationResult> => {
-    return onSimulate(resolvedUrl, config.propertyBindings, config.payloadTemplate, config.headersTemplate);
-  }, [onSimulate, resolvedUrl, config.propertyBindings, config.payloadTemplate, config.headersTemplate]);
+    let finalHeaders = config.headersTemplate;
+    try {
+      const parsed = JSON.parse(finalHeaders || '{}');
+      const hasCt = Object.keys(parsed).some(k => k.toLowerCase() === 'content-type');
+      if (!hasCt && currentBodyFormat !== 'none') {
+        parsed['Content-Type'] = currentBodyFormat;
+        finalHeaders = JSON.stringify(parsed, null, 2);
+      }
+    } catch {
+      // pass through
+    }
+    return onSimulate(resolvedUrl, config.propertyBindings, config.payloadTemplate, finalHeaders);
+  }, [onSimulate, resolvedUrl, config.propertyBindings, config.payloadTemplate, config.headersTemplate, currentBodyFormat]);
 
   /* ---------- render ---------- */
 
@@ -374,6 +478,15 @@ export const MethodExpansionDrawer: React.FC<MethodExpansionDrawerProps> = ({
         </div>
       </div>
 
+      {/* ── Token Lifecycle & Auto-Refresh Triggers (Auth Methods Only) ── */}
+      {isAuthMethod && (
+        <TokenLifecycleCard
+          config={config.tokenRefreshConfig || {}}
+          onChange={updated => handleFieldChange('tokenRefreshConfig', updated)}
+          disabled={!editMode}
+        />
+      )}
+
       {/* ── 2-Column Side-by-Side Grid: Left (Headers & Payload) | Right (PathVars & Simulation) ── */}
       <div
         style={{
@@ -435,12 +548,39 @@ export const MethodExpansionDrawer: React.FC<MethodExpansionDrawerProps> = ({
             </div>
           </div>
 
-          {/* JSON Payload Template */}
+          {/* Payload Template with Body Format Selector */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
               <div style={sectionLabelStyle}>
                 <Code size={12} style={{ marginRight: '4px' }} />
-                JSON Payload Template
+                Payload Template
+              </div>
+
+              {/* Body Format Dropdown (Postman Style) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontWeight: 600 }}>Body Format:</span>
+                <select
+                  value={currentBodyFormat}
+                  onChange={e => handleBodyFormatChange(e.target.value)}
+                  disabled={!editMode}
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-default)',
+                    backgroundColor: editMode ? 'var(--bg-surface)' : 'var(--bg-surface-subtle)',
+                    color: '#38BDF8',
+                    fontWeight: 600,
+                    fontSize: '11px',
+                    outline: 'none',
+                    cursor: editMode ? 'pointer' : 'default',
+                  }}
+                >
+                  {BODY_FORMAT_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -493,14 +633,19 @@ export const MethodExpansionDrawer: React.FC<MethodExpansionDrawerProps> = ({
               value={config.payloadTemplate}
               onChange={e => handleFieldChange('payloadTemplate', e.target.value)}
               disabled={!editMode}
-              placeholder={'{\n  "palletId": "{{pallet.lpn}}",\n  "quantity": {{pallet.quantity}},\n  "timestamp": "{{fn.now}}"\n}'}
+              placeholder={payloadPlaceholder}
               style={{
                 ...TEXTAREA_STYLE,
                 opacity: editMode ? 1 : 0.7,
               }}
             />
-            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Use <code style={{ color: '#38BDF8' }}>{'{{property_key}}'}</code> for configured property substitution when API is fired.
+            <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+              <span>
+                Use <code style={{ color: '#38BDF8' }}>{'{{property_key}}'}</code> for configured property substitution when API is fired.
+              </span>
+              <span style={{ fontFamily: 'monospace', color: '#10B981', fontSize: '10px', backgroundColor: 'rgba(16, 185, 129, 0.08)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                Content-Type: {currentBodyFormat}
+              </span>
             </div>
           </div>
         </div>

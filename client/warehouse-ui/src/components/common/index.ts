@@ -8,3 +8,4 @@ export * from './Alert';
 export * from './Tabs';
 export * from './JsonViewer';
 export * from './DataTable';
+export * from './ErrorBoundary';

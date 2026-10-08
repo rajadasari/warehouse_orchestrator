@@ -192,7 +192,12 @@ public class ResourceClient {
     }
 
     public boolean decommissionResource(ResourceId id) {
-        return lifecycleService.decommissionResource(id);
+        boolean decommissioned = lifecycleService.decommissionResource(id);
+        if (decommissioned) {
+            topologyService.removeNode(id);
+            arbitrationEngine.releaseByResource(id);
+        }
+        return decommissioned;
     }
 
     public int expireStaleLeases() {

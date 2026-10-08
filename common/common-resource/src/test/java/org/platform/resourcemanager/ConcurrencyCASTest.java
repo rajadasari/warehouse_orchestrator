@@ -63,4 +63,22 @@ class ConcurrencyCASTest {
         // Version should now be 2
         assertThat(resource.getVersion()).isEqualTo(2L);
     }
+
+    @Test
+    @DisplayName("Should enforce optimistic locking on updateTemplateCode")
+    void shouldEnforceCASOnTemplateCodeUpdate() {
+        Resource resource = ResourceBuilder.create(ResourceId.of("shopfloor", "PRESS-01"))
+                .version(10L)
+                .build();
+
+        resource.updateTemplateCode("STAMPING_V1", 10L);
+        assertThat(resource.getTemplateCode()).isEqualTo("STAMPING_V1");
+        assertThat(resource.getVersion()).isEqualTo(11L);
+
+        // Stale expected version must throw ConcurrencyConflictException
+        org.junit.jupiter.api.Assertions.assertThrows(
+                ConcurrencyConflictException.class,
+                () -> resource.updateTemplateCode("STAMPING_V2", 10L)
+        );
+    }
 }

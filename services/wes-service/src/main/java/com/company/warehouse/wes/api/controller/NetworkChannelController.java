@@ -1,20 +1,22 @@
 package com.company.warehouse.wes.api.controller;
 
 import com.company.warehouse.wes.business.network.LiveOpcUaChannelDriver;
+import com.company.warehouse.wes.business.network.NetworkChannelService;
+import com.company.warehouse.wes.business.network.OpcUaValueHelper;
 import com.company.warehouse.wes.data.entity.NetworkDeviceChannelEntity;
 import com.company.warehouse.wes.data.entity.NetworkDeviceTagEntity;
 import com.company.warehouse.wes.data.entity.NetworkTagAcquisitionConfigEntity;
 import com.company.warehouse.wes.data.repository.NetworkDeviceChannelRepository;
 import com.company.warehouse.wes.data.repository.NetworkDeviceTagRepository;
 import com.company.warehouse.wes.data.repository.NetworkTagAcquisitionConfigRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.milo.opcua.stack.core.types.builtin.DataValue;
-import jakarta.annotation.PostConstruct;
+import org.eclipse.milo.opcua.stack.core.types.builtin.StatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -41,9 +43,10 @@ public class NetworkChannelController {
     private final NetworkDeviceTagRepository tagRepository;
     private final NetworkTagAcquisitionConfigRepository acquisitionConfigRepository;
     private final LiveOpcUaChannelDriver liveOpcUaDriver;
+    private final NetworkChannelService networkChannelService;
     private final ObjectMapper objectMapper;
+
     private final Map<String, List<SseEmitter>> sseEmitters = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, Map<String, Object>>> latestTelemetryCache = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void initTelemetryBridge() {
@@ -56,28 +59,31 @@ public class NetworkChannelController {
                     "timestamp", timestamp != null ? timestamp : Instant.now().toString()
             );
 
-            latestTelemetryCache.computeIfAbsent(channelId, k -> new ConcurrentHashMap<>()).put(nodeId, payload);
-
-            List<SseEmitter> emitters = sseEmitters.get(channelId);
-            if (emitters != null && !emitters.isEmpty()) {
-                List<SseEmitter> deadEmitters = new ArrayList<>();
-                for (SseEmitter emitter : emitters) {
-                    try {
-                        emitter.send(SseEmitter.event().name("tag-update").data(payload));
-                    } catch (Exception e) {
-                        deadEmitters.add(emitter);
-                    }
-                }
-                emitters.removeAll(deadEmitters);
-            }
+            networkChannelService.putTelemetryCache(channelId, nodeId, payload);
+            broadcastTagUpdate(channelId, payload);
         });
+    }
+
+    private void broadcastTagUpdate(String channelId, Map<String, Object> payload) {
+        List<SseEmitter> emitters = sseEmitters.get(channelId);
+        if (emitters != null && !emitters.isEmpty()) {
+            List<SseEmitter> deadEmitters = new ArrayList<>();
+            for (SseEmitter emitter : emitters) {
+                try {
+                    emitter.send(SseEmitter.event().name("tag-update").data(payload));
+                } catch (Exception e) {
+                    deadEmitters.add(emitter);
+                }
+            }
+            emitters.removeAll(deadEmitters);
+        }
     }
 
     @GetMapping(value = "/channels/{channelId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Real-time SSE push stream for live OPC-UA subscription telemetry")
     public SseEmitter streamChannelTelemetry(@PathVariable String channelId) {
         SseEmitter emitter = new SseEmitter(600_000L);
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         String resolvedId = chanOpt.map(c -> c.getId().toString()).orElse(channelId);
 
         sseEmitters.computeIfAbsent(resolvedId, k -> new CopyOnWriteArrayList<>()).add(emitter);
@@ -88,6 +94,14 @@ public class NetworkChannelController {
 
         try {
             emitter.send(SseEmitter.event().name("connected").data(Map.of("channelId", resolvedId, "status", "CONNECTED")));
+
+            // Immediately replay latest cached values so frontend receives live state without waiting
+            List<Map<String, Object>> latestValues = networkChannelService.getLatestValuesForChannel(resolvedId);
+            for (Map<String, Object> payload : latestValues) {
+                try {
+                    emitter.send(SseEmitter.event().name("tag-update").data(payload));
+                } catch (Exception ignored) {}
+            }
         } catch (Exception ignored) {}
 
         return emitter;
@@ -111,9 +125,8 @@ public class NetworkChannelController {
             if (actualTagsCount != (e.getTagsCount() != null ? e.getTagsCount() : 0)) {
                 e.setTagsCount(actualTagsCount);
             }
-            result.add(entityToMap(e));
+            result.add(networkChannelService.entityToMap(e));
         }
-
         return ResponseEntity.ok(result);
     }
 
@@ -158,20 +171,58 @@ public class NetworkChannelController {
                 .build();
 
         NetworkDeviceChannelEntity saved = channelRepository.save(entity);
-        log.info("Saved new Network Device Channel: code='{}', protocol='{}', endpoint='{}'",
-                saved.getChannelCode(), saved.getProtocol(), saved.getEndpointUrl());
+        return ResponseEntity.ok(networkChannelService.entityToMap(saved));
+    }
 
-        return ResponseEntity.ok(entityToMap(saved));
+    @PutMapping("/channels/{id}")
+    @Operation(summary = "Update an existing device channel")
+    public ResponseEntity<Map<String, Object>> updateChannel(@PathVariable String id, @RequestBody Map<String, Object> req) {
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(id);
+        if (chanOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        NetworkDeviceChannelEntity channel = chanOpt.get();
+        if (req.containsKey("name")) channel.setChannelName(String.valueOf(req.get("name")));
+        if (req.containsKey("endpointUrl")) channel.setEndpointUrl(String.valueOf(req.get("endpointUrl")));
+        if (req.containsKey("protocol")) channel.setProtocol(String.valueOf(req.get("protocol")));
+        if (req.containsKey("securityPolicy")) channel.setSecurityPolicy(String.valueOf(req.get("securityPolicy")));
+        if (req.containsKey("authType")) channel.setAuthType(String.valueOf(req.get("authType")));
+        if (req.containsKey("status")) channel.setStatus(String.valueOf(req.get("status")));
+
+        liveOpcUaDriver.invalidateChannelConnection(channel);
+        NetworkDeviceChannelEntity saved = channelRepository.save(channel);
+        return ResponseEntity.ok(networkChannelService.entityToMap(saved));
     }
 
     @DeleteMapping("/channels/{id}")
-    @Operation(summary = "Remove a device channel")
-    public ResponseEntity<Void> deleteChannel(@PathVariable String id) {
-        resolveChannel(id).ifPresent(c -> {
-            channelRepository.delete(c);
-            log.info("Deleted channel id='{}', code='{}'", c.getId(), c.getChannelCode());
-        });
-        return ResponseEntity.noContent().build();
+    @Operation(summary = "Remove a device channel (allowed only when all tags are removed)")
+    public ResponseEntity<Map<String, Object>> deleteChannel(@PathVariable String id) {
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(id);
+        if (chanOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        NetworkDeviceChannelEntity channel = chanOpt.get();
+        int activeTagsCount = tagRepository.countByChannelId(channel.getId());
+        if (activeTagsCount > 0) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(Map.of(
+                    "success", false,
+                    "error", "CHANNEL_HAS_TAGS",
+                    "tagsCount", activeTagsCount,
+                    "message", String.format(
+                            "Cannot delete channel '%s': %d monitored tag(s) are still registered in the database. Please remove all tags before deleting this channel.",
+                            channel.getChannelName(), activeTagsCount)
+            ));
+        }
+
+        liveOpcUaDriver.invalidateChannelConnection(channel);
+        channelRepository.delete(channel);
+        log.info("Deleted channel id='{}', code='{}'", channel.getId(), channel.getChannelCode());
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", String.format("Channel '%s' successfully deleted.", channel.getChannelName())
+        ));
     }
 
     @PostMapping("/channels/test")
@@ -189,13 +240,10 @@ public class NetworkChannelController {
         return ResponseEntity.ok(res);
     }
 
-    /**
-     * Browses the live OPC-UA address space in-memory over the socket without writing to the database.
-     */
     @PostMapping("/channels/{channelId}/browse")
     @Operation(summary = "Live in-memory address space browse (Zero database writes)")
     public ResponseEntity<List<Map<String, Object>>> browseChannelAddressSpace(@PathVariable String channelId) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
@@ -207,24 +255,17 @@ public class NetworkChannelController {
             liveTags = liveOpcUaDriver.browseLiveAddressSpace(channel);
         }
 
-        // Return discovered tags in-memory directly to frontend
-        List<Map<String, Object>> result = new ArrayList<>();
+        List<Map<String, Object>> result = new ArrayList<>(liveTags.size());
         for (NetworkDeviceTagEntity t : liveTags) {
-            result.add(tagEntityToMap(t));
+            result.add(networkChannelService.tagEntityToMap(t));
         }
         return ResponseEntity.ok(result);
     }
 
-    /**
-     * Unified Synchronization Endpoint:
-     * 1. Crawls live OPC-UA address space in-memory over socket.
-     * 2. Retrieves persisted monitored tags & 3NF acquisition configs from PostgreSQL.
-     * 3. Merges them in-memory (zero background polling, idempotent).
-     */
     @PostMapping("/channels/{channelId}/sync")
     @Operation(summary = "Unified Live OPC-UA sync with PostgreSQL acquisition registry")
     public ResponseEntity<List<Map<String, Object>>> syncChannelData(@PathVariable String channelId) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
@@ -237,13 +278,11 @@ public class NetworkChannelController {
             channelRepository.save(channel);
         }
 
-        // 1. Live address space crawl in-memory
         List<NetworkDeviceTagEntity> liveDiscovered = Collections.emptyList();
         if (reachable && "OPC_UA".equalsIgnoreCase(channel.getProtocol())) {
             liveDiscovered = liveOpcUaDriver.browseLiveAddressSpace(channel);
         }
 
-        // 2. Load persisted monitored tags and their acquisition configs from DB
         List<NetworkDeviceTagEntity> savedTags = tagRepository.findByChannelId(channel.getId());
         List<UUID> savedTagIds = savedTags.stream().map(NetworkDeviceTagEntity::getId).toList();
         Map<UUID, NetworkTagAcquisitionConfigEntity> configMap = new HashMap<>();
@@ -259,7 +298,6 @@ public class NetworkChannelController {
             savedByNodeId.put(st.getNodeId(), st);
         }
 
-        // 3. In-memory merge:
         List<Map<String, Object>> result = new ArrayList<>();
         Set<String> processedNodeIds = new HashSet<>();
 
@@ -267,55 +305,72 @@ public class NetworkChannelController {
             processedNodeIds.add(liveTag.getNodeId());
             NetworkDeviceTagEntity saved = savedByNodeId.get(liveTag.getNodeId());
             if (saved != null) {
-                // Monitored tag already in DB: preserve DB ID, persisted values & operational acquisition configuration
                 NetworkTagAcquisitionConfigEntity cfg = configMap.get(saved.getId());
-                result.add(tagEntityToMap(saved, cfg, true, saved.getId().toString()));
+                result.add(networkChannelService.tagEntityToMap(saved, cfg, true, saved.getId().toString()));
             } else {
-                // Discovered unmonitored node: default to SUBSCRIPTION, logging = false
-                result.add(tagEntityToMap(liveTag, null, false, liveTag.getNodeId()));
+                result.add(networkChannelService.tagEntityToMap(liveTag, null, false, liveTag.getNodeId()));
             }
         }
 
-        // Append any saved tags that weren't discovered in live crawl (e.g. offline tags or custom paths)
         for (NetworkDeviceTagEntity saved : savedTags) {
             if (!processedNodeIds.contains(saved.getNodeId())) {
                 NetworkTagAcquisitionConfigEntity cfg = configMap.get(saved.getId());
-                result.add(tagEntityToMap(saved, cfg, true, saved.getId().toString()));
+                result.add(networkChannelService.tagEntityToMap(saved, cfg, true, saved.getId().toString()));
             }
         }
 
-        // 4. Update live Milo subscription for all nodes configured as SUBSCRIPTION (default for all discovered nodes)
         if (reachable && "OPC_UA".equalsIgnoreCase(channel.getProtocol())) {
             Set<String> subNodeIds = new HashSet<>();
-            for (Map<String, Object> map : result) {
-                String method = String.valueOf(map.getOrDefault("acquisitionMethod", "SUBSCRIPTION"));
-                if ("SUBSCRIPTION".equalsIgnoreCase(method)) {
-                    subNodeIds.add(String.valueOf(map.get("nodeId")));
-                }
+            for (NetworkDeviceTagEntity st : savedTags) {
+                subNodeIds.add(st.getNodeId());
             }
-            liveOpcUaDriver.updateSubscriptionNodes(channel, subNodeIds);
+            if (!subNodeIds.isEmpty()) {
+                liveOpcUaDriver.updateSubscriptionNodes(channel, subNodeIds);
+            }
         }
 
         return ResponseEntity.ok(result);
     }
 
-    /**
-     * Live watchdog health check for an OPC-UA channel.
-     */
+    @PostMapping("/channels/{channelId}/sync-values")
+    @Operation(summary = "Lightweight DB tag value sync with MISSING detection (zero browsing)")
+    public ResponseEntity<List<Map<String, Object>>> syncTagValues(@PathVariable String channelId) {
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
+        if (chanOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        NetworkDeviceChannelEntity channel = chanOpt.get();
+        List<Map<String, Object>> result = networkChannelService.syncTagValues(channel);
+
+        // Broadcast updated values to any active SSE listeners
+        String chIdStr = channel.getId().toString();
+        for (Map<String, Object> tagMap : result) {
+            broadcastTagUpdate(chIdStr, Map.of(
+                    "channelId", chIdStr,
+                    "nodeId", tagMap.get("nodeId"),
+                    "value", tagMap.get("value") != null ? tagMap.get("value") : "",
+                    "quality", tagMap.get("quality") != null ? tagMap.get("quality") : "GOOD (0x00000000)",
+                    "timestamp", tagMap.get("timestamp") != null ? tagMap.get("timestamp") : Instant.now().toString()
+            ));
+        }
+
+        return ResponseEntity.ok(result);
+    }
+
     @GetMapping("/channels/{channelId}/health")
-    @Operation(summary = "Check live socket connectivity and health of the OPC-UA channel")
+    @Operation(summary = "Real-time health check ping for a device channel")
     public ResponseEntity<Map<String, Object>> checkChannelHealth(@PathVariable String channelId) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
         NetworkDeviceChannelEntity channel = chanOpt.get();
         boolean reachable = false;
+
         if ("OPC_UA".equalsIgnoreCase(channel.getProtocol())) {
             reachable = liveOpcUaDriver.isChannelReachable(channel);
-        } else {
-            reachable = true;
         }
 
         String newStatus = reachable ? "ONLINE" : "DISCONNECTED";
@@ -324,111 +379,48 @@ public class NetworkChannelController {
             channelRepository.save(channel);
         }
 
-        Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("channelId", channel.getId());
-        resp.put("channelCode", channel.getChannelCode());
-        resp.put("status", newStatus);
-        resp.put("reachable", reachable);
-        resp.put("endpointUrl", channel.getEndpointUrl());
-        resp.put("checkedAt", Instant.now().toString());
-        return ResponseEntity.ok(resp);
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("channelId", channel.getId().toString());
+        res.put("channelCode", channel.getChannelCode());
+        res.put("status", newStatus);
+        res.put("reachable", reachable);
+        res.put("endpointUrl", channel.getEndpointUrl());
+        res.put("checkedAt", Instant.now().toString());
+
+        return ResponseEntity.ok(res);
     }
 
-    /**
-     * Gets all operator-curated tags saved in PostgreSQL for this channel, updating live quality.
-     */
     @GetMapping("/channels/{channelId}/tags")
-    @Operation(summary = "Get monitored tags saved in DB with live quality watchdog")
+    @Operation(summary = "Get monitored tags saved in DB with live values on load")
     public ResponseEntity<List<Map<String, Object>>> getChannelTags(@PathVariable String channelId) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.ok(Collections.emptyList());
         }
 
         NetworkDeviceChannelEntity channel = chanOpt.get();
-        List<NetworkDeviceTagEntity> tags = tagRepository.findByChannelId(channel.getId());
-
-        // Load 3NF acquisition configurations first
-        List<UUID> savedTagIds = tags.stream().map(NetworkDeviceTagEntity::getId).toList();
-        Map<UUID, NetworkTagAcquisitionConfigEntity> configMap = new HashMap<>();
-        if (!savedTagIds.isEmpty()) {
-            List<NetworkTagAcquisitionConfigEntity> configs = acquisitionConfigRepository.findByTagIdIn(savedTagIds);
-            for (NetworkTagAcquisitionConfigEntity c : configs) {
-                configMap.put(c.getTagId(), c);
+        try {
+            List<Map<String, Object>> tagsWithValues = networkChannelService.getChannelTagsWithLiveValues(channel);
+            return ResponseEntity.ok(tagsWithValues);
+        } catch (Throwable ex) {
+            log.error("Failed to retrieve tags with live values for channel '{}': {}", channelId, ex.getMessage(), ex);
+            try {
+                List<Map<String, Object>> fallback = networkChannelService.getChannelTagsFallback(channel);
+                return ResponseEntity.ok(fallback);
+            } catch (Exception fallbackEx) {
+                log.error("Failed to load fallback tags from DB for channel '{}': {}", channelId, fallbackEx.getMessage());
+                return ResponseEntity.ok(Collections.emptyList());
             }
         }
-
-        boolean anySuccess = false;
-        boolean anyAttempt = false;
-
-        // Perform live quality and value check only for POLLED_READ tags; SUBSCRIPTION tags receive push events
-        if ("OPC_UA".equalsIgnoreCase(channel.getProtocol())) {
-            if (!tags.isEmpty()) {
-                for (NetworkDeviceTagEntity t : tags) {
-                    NetworkTagAcquisitionConfigEntity cfg = configMap.get(t.getId());
-                    String acqMethod = cfg != null ? cfg.getAcquisitionMethod() : "SUBSCRIPTION";
-
-                    // Only send synchronous on-the-wire ReadRequest if method is explicitly POLLED_READ
-                    if ("POLLED_READ".equalsIgnoreCase(acqMethod)) {
-                        anyAttempt = true;
-                        try {
-                            DataValue dv = liveOpcUaDriver.readLiveValue(channel, t.getNodeId());
-                            if (dv != null && dv.getStatusCode() != null && dv.getStatusCode().isGood()) {
-                                anySuccess = true;
-                                if (dv.getValue() != null && dv.getValue().getValue() != null) {
-                                    t.setCurrentValue(String.valueOf(dv.getValue().getValue()));
-                                }
-                                t.setQuality("GOOD (0x00000000)");
-                            } else {
-                                t.setQuality("BAD (0x80050000 - Bad_CommunicationFailure)");
-                            }
-                        } catch (Exception ex) {
-                            t.setQuality("BAD (0x80050000 - Bad_CommunicationFailure)");
-                        }
-                        t.setLastUpdated(Instant.now());
-                    } else {
-                        // For SUBSCRIPTION tags, status is maintained via active push notifications
-                        anySuccess = true;
-                    }
-                }
-
-                // Update channel connection status based on live communication
-                String newStatus = anySuccess ? "ONLINE" : (anyAttempt ? "DISCONNECTED" : channel.getStatus());
-                if (!newStatus.equals(channel.getStatus())) {
-                    channel.setStatus(newStatus);
-                    channelRepository.save(channel);
-                }
-            } else {
-                // If no tags are saved yet, verify channel reachability directly
-                boolean reachable = liveOpcUaDriver.isChannelReachable(channel);
-                String newStatus = reachable ? "ONLINE" : "DISCONNECTED";
-                if (!newStatus.equals(channel.getStatus())) {
-                    channel.setStatus(newStatus);
-                    channelRepository.save(channel);
-                }
-            }
-        }
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (NetworkDeviceTagEntity t : tags) {
-            NetworkTagAcquisitionConfigEntity cfg = configMap.get(t.getId());
-            result.add(tagEntityToMap(t, cfg, true, t.getId().toString()));
-        }
-
-        return ResponseEntity.ok(result);
     }
 
-    /**
-     * Operator clicks '+' on a browsed tag -> saves to PostgreSQL table wo.network_device_tag
-     * and initializes normalized 3NF acquisition configuration (default: SUBSCRIPTION).
-     */
     @PostMapping("/channels/{channelId}/tags")
     @Operation(summary = "Add operator-selected tag to monitored database list with 3NF acquisition configuration")
     public ResponseEntity<Map<String, Object>> addMonitoredTag(
             @PathVariable String channelId,
             @RequestBody Map<String, Object> req
     ) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
@@ -442,6 +434,16 @@ public class NetworkChannelController {
         String quality = String.valueOf(req.getOrDefault("quality", "GOOD (0x00000000)"));
         String val = req.containsKey("value") ? String.valueOf(req.get("value")) : "0";
 
+        boolean isUdt = Boolean.parseBoolean(String.valueOf(req.getOrDefault("isUdt", "false")));
+        boolean isUdtMember = Boolean.parseBoolean(String.valueOf(req.getOrDefault("isUdtMember", "false")));
+        String memberPath = req.containsKey("memberPath") ? String.valueOf(req.get("memberPath")) : null;
+        UUID parentTagId = null;
+        if (req.containsKey("parentTagId") && req.get("parentTagId") != null) {
+            try {
+                parentTagId = UUID.fromString(String.valueOf(req.get("parentTagId")));
+            } catch (Exception ignored) {}
+        }
+
         Optional<NetworkDeviceTagEntity> existingOpt = tagRepository.findByChannelIdAndNodeId(channel.getId(), nodeId);
         NetworkDeviceTagEntity tag;
         if (existingOpt.isPresent()) {
@@ -449,6 +451,10 @@ public class NetworkChannelController {
             tag.setTagName(tagName);
             tag.setFolderPath(folder);
             tag.setCurrentValue(val);
+            tag.setIsUdt(isUdt);
+            tag.setIsUdtMember(isUdtMember);
+            tag.setParentTagId(parentTagId);
+            tag.setMemberPath(memberPath);
             tag.setLastUpdated(Instant.now());
         } else {
             tag = NetworkDeviceTagEntity.builder()
@@ -461,15 +467,30 @@ public class NetworkChannelController {
                     .currentValue(val)
                     .isWritable(true)
                     .isSubscribed(true)
+                    .isUdt(isUdt)
+                    .isUdtMember(isUdtMember)
+                    .parentTagId(parentTagId)
+                    .memberPath(memberPath)
                     .lastUpdated(Instant.now())
                     .build();
+        }
+
+        // Attempt live read immediately so new tag starts with real value
+        if ("OPC_UA".equalsIgnoreCase(channel.getProtocol())) {
+            try {
+                DataValue dv = liveOpcUaDriver.readLiveValue(channel, nodeId);
+                if (dv != null && dv.getStatusCode() != null && dv.getStatusCode().isGood() && dv.getValue() != null) {
+                    Object cleanVal = OpcUaValueHelper.sanitizeAndExtractValue(dv.getValue().getValue());
+                    tag.setCurrentValue(String.valueOf(cleanVal));
+                    tag.setQuality("GOOD (0x00000000)");
+                }
+            } catch (Exception ignored) {}
         }
 
         NetworkDeviceTagEntity savedTag = tagRepository.save(tag);
         channel.setTagsCount(tagRepository.countByChannelId(channel.getId()));
         channelRepository.save(channel);
 
-        // Manage normalized 3NF Acquisition Config
         String acqMethod = String.valueOf(req.getOrDefault("acquisitionMethod", "SUBSCRIPTION"));
         boolean isLogging = Boolean.parseBoolean(String.valueOf(req.getOrDefault("isLoggingEnabled", "false")));
         int samplingInterval = req.containsKey("samplingIntervalMs") ? Integer.parseInt(String.valueOf(req.get("samplingIntervalMs"))) : 250;
@@ -486,195 +507,161 @@ public class NetworkChannelController {
         acqConfig.setIsActive(true);
         acqConfig = acquisitionConfigRepository.save(acqConfig);
 
-        log.info("Operator added monitored tag '{}' ({}) with method='{}', logging={} to channel '{}'",
-                savedTag.getTagName(), savedTag.getNodeId(), acqMethod, isLogging, channel.getChannelCode());
-
-        // Immediately add to live Milo subscription if method is SUBSCRIPTION
         if ("OPC_UA".equalsIgnoreCase(channel.getProtocol()) && "SUBSCRIPTION".equalsIgnoreCase(acqMethod)) {
             liveOpcUaDriver.addSubscriptionNode(channel, savedTag.getNodeId());
         }
 
-        return ResponseEntity.ok(tagEntityToMap(savedTag, acqConfig, true, savedTag.getId().toString()));
+        return ResponseEntity.ok(networkChannelService.tagEntityToMap(savedTag, acqConfig, true, savedTag.getId().toString()));
     }
 
-    /**
-     * Update 3NF acquisition policy (method, logging, intervals, deadband) for a monitored tag.
-     */
     @PutMapping("/channels/{channelId}/tags/{tagIdentifier}/config")
-    @Operation(summary = "Update 3NF acquisition config and logging policy for a monitored tag")
+    @Operation(summary = "Update 3NF acquisition policy (method, logging, intervals, deadband)")
     public ResponseEntity<Map<String, Object>> updateTagAcquisitionConfig(
             @PathVariable String channelId,
             @PathVariable String tagIdentifier,
             @RequestBody Map<String, Object> req
     ) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
         NetworkDeviceChannelEntity channel = chanOpt.get();
-        NetworkDeviceTagEntity tag = null;
-        try {
-            tag = tagRepository.findById(UUID.fromString(tagIdentifier)).orElse(null);
-        } catch (Exception ignored) {}
-        if (tag == null) {
-            tag = tagRepository.findByChannelIdAndNodeId(channel.getId(), tagIdentifier).orElse(null);
-        }
-        if (tag == null) {
+        Optional<NetworkDeviceTagEntity> tagOpt = networkChannelService.findTag(channel.getId(), tagIdentifier);
+        if (tagOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
-        final UUID finalTagId = tag.getId();
-        Optional<NetworkTagAcquisitionConfigEntity> cfgOpt = acquisitionConfigRepository.findByTagId(finalTagId);
-        NetworkTagAcquisitionConfigEntity acqConfig = cfgOpt.orElseGet(() -> NetworkTagAcquisitionConfigEntity.builder().tagId(finalTagId).build());
+        NetworkDeviceTagEntity tag = tagOpt.get();
+        Optional<NetworkTagAcquisitionConfigEntity> cfgOpt = acquisitionConfigRepository.findByTagId(tag.getId());
+        NetworkTagAcquisitionConfigEntity config = cfgOpt.orElseGet(() -> NetworkTagAcquisitionConfigEntity.builder().tagId(tag.getId()).build());
 
-        if (req.containsKey("acquisitionMethod")) {
-            acqConfig.setAcquisitionMethod(String.valueOf(req.get("acquisitionMethod")));
-        }
-        if (req.containsKey("isLoggingEnabled")) {
-            acqConfig.setIsLoggingEnabled(Boolean.parseBoolean(String.valueOf(req.get("isLoggingEnabled"))));
-        }
-        if (req.containsKey("samplingIntervalMs")) {
-            acqConfig.setSamplingIntervalMs(Integer.parseInt(String.valueOf(req.get("samplingIntervalMs"))));
-        }
-        if (req.containsKey("publishingIntervalMs")) {
-            acqConfig.setPublishingIntervalMs(Integer.parseInt(String.valueOf(req.get("publishingIntervalMs"))));
-        }
-        if (req.containsKey("deadbandValue")) {
-            acqConfig.setDeadbandValue(Double.parseDouble(String.valueOf(req.get("deadbandValue"))));
-        }
-        if (req.containsKey("isActive")) {
-            acqConfig.setIsActive(Boolean.parseBoolean(String.valueOf(req.get("isActive"))));
-        }
+        String oldMethod = config.getAcquisitionMethod();
+        if (req.containsKey("acquisitionMethod")) config.setAcquisitionMethod(String.valueOf(req.get("acquisitionMethod")));
+        if (req.containsKey("isLoggingEnabled")) config.setIsLoggingEnabled(Boolean.parseBoolean(String.valueOf(req.get("isLoggingEnabled"))));
+        if (req.containsKey("samplingIntervalMs")) config.setSamplingIntervalMs(Integer.parseInt(String.valueOf(req.get("samplingIntervalMs"))));
+        if (req.containsKey("publishingIntervalMs")) config.setPublishingIntervalMs(Integer.parseInt(String.valueOf(req.get("publishingIntervalMs"))));
+        if (req.containsKey("deadbandValue")) config.setDeadbandValue(Double.parseDouble(String.valueOf(req.get("deadbandValue"))));
 
-        acqConfig = acquisitionConfigRepository.save(acqConfig);
+        config = acquisitionConfigRepository.save(config);
 
-        // Synchronize live Milo subscription state with updated acquisition method
         if ("OPC_UA".equalsIgnoreCase(channel.getProtocol())) {
-            if ("SUBSCRIPTION".equalsIgnoreCase(acqConfig.getAcquisitionMethod())) {
+            String newMethod = config.getAcquisitionMethod();
+            if ("SUBSCRIPTION".equalsIgnoreCase(newMethod) && !"SUBSCRIPTION".equalsIgnoreCase(oldMethod)) {
                 liveOpcUaDriver.addSubscriptionNode(channel, tag.getNodeId());
-            } else {
+            } else if (!"SUBSCRIPTION".equalsIgnoreCase(newMethod) && "SUBSCRIPTION".equalsIgnoreCase(oldMethod)) {
                 liveOpcUaDriver.removeSubscriptionNode(channel, tag.getNodeId());
             }
         }
 
-        return ResponseEntity.ok(tagEntityToMap(tag, acqConfig, true, tag.getId().toString()));
+        return ResponseEntity.ok(networkChannelService.tagEntityToMap(tag, config, true, tag.getId().toString()));
     }
 
-    /**
-     * Operator clicks '-' on a tag -> removes it from PostgreSQL table wo.network_device_tag.
-     * Supports either ?nodeId=... / ?tagId=... query parameters or /{tagIdentifier} path variable.
-     */
     @DeleteMapping("/channels/{channelId}/tags")
-    @Operation(summary = "Remove operator-selected tag by nodeId or tagId via query parameters")
-    public ResponseEntity<Void> removeMonitoredTagByQuery(
+    @Operation(summary = "Remove monitored tag by nodeId or clear all monitored tags")
+    public ResponseEntity<Void> removeMonitoredTagByNodeId(
             @PathVariable String channelId,
-            @RequestParam(required = false) String tagId,
             @RequestParam(required = false) String nodeId
     ) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-
         NetworkDeviceChannelEntity channel = chanOpt.get();
-        if (tagId != null && !tagId.isBlank()) {
-            try {
-                UUID uid = UUID.fromString(tagId);
-                tagRepository.findById(uid).ifPresent(t -> {
-                    liveOpcUaDriver.removeSubscriptionNode(channel, t.getNodeId());
-                    tagRepository.delete(t);
-                });
-            } catch (Exception ignored) {
-            }
+        if (nodeId == null || nodeId.isBlank()) {
+            networkChannelService.removeAllMonitoredTags(channel);
+        } else {
+            networkChannelService.removeMonitoredTag(channel, nodeId);
         }
-        if (nodeId != null && !nodeId.isBlank()) {
-            liveOpcUaDriver.removeSubscriptionNode(channel, nodeId);
-            tagRepository.findByChannelIdAndNodeId(channel.getId(), nodeId).ifPresent(tagRepository::delete);
-        }
-
-        channel.setTagsCount(tagRepository.countByChannelId(channel.getId()));
-        channelRepository.save(channel);
-        log.info("Operator removed monitored tag (tagId='{}', nodeId='{}') from channel '{}'",
-                tagId, nodeId, channel.getChannelCode());
-
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/channels/{channelId}/tags/{tagIdentifier}")
-    @Operation(summary = "Remove operator-selected tag from monitored database list by tag UUID or nodeId")
+    @Operation(summary = "Remove monitored tag from PostgreSQL by UUID or nodeId, or all tags")
     public ResponseEntity<Void> removeMonitoredTag(
             @PathVariable String channelId,
             @PathVariable String tagIdentifier
     ) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-
         NetworkDeviceChannelEntity channel = chanOpt.get();
-        try {
-            UUID tagUuid = UUID.fromString(tagIdentifier);
-            tagRepository.findById(tagUuid).ifPresent(t -> {
-                liveOpcUaDriver.removeSubscriptionNode(channel, t.getNodeId());
-                tagRepository.delete(t);
-            });
-        } catch (IllegalArgumentException e) {
-            liveOpcUaDriver.removeSubscriptionNode(channel, tagIdentifier);
-            tagRepository.findByChannelIdAndNodeId(channel.getId(), tagIdentifier).ifPresent(tagRepository::delete);
+        if ("all".equalsIgnoreCase(tagIdentifier)) {
+            networkChannelService.removeAllMonitoredTags(channel);
+        } else {
+            networkChannelService.removeMonitoredTag(channel, tagIdentifier);
         }
-
-        channel.setTagsCount(tagRepository.countByChannelId(channel.getId()));
-        channelRepository.save(channel);
-        log.info("Operator removed monitored tag '{}' from channel '{}'", tagIdentifier, channel.getChannelCode());
-
         return ResponseEntity.noContent().build();
     }
 
-    /**
-     * Batch read live telemetry for arbitrary node IDs in-memory over socket.
-     */
-    @PostMapping("/channels/{channelId}/tags/read-values")
-    @Operation(summary = "Batch read live values for arbitrary node IDs in-memory over socket")
-    public ResponseEntity<List<Map<String, Object>>> readLiveTagValues(
-            @PathVariable String channelId,
-            @RequestBody List<String> nodeIds
+    @DeleteMapping("/channels/{channelId}/tags/all")
+    @Operation(summary = "Remove all monitored tags from PostgreSQL for channel")
+    public ResponseEntity<Void> removeAllMonitoredTags(
+            @PathVariable String channelId
     ) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
+        networkChannelService.removeAllMonitoredTags(chanOpt.get());
+        return ResponseEntity.noContent().build();
+    }
 
-        NetworkDeviceChannelEntity channel = chanOpt.get();
-        Map<String, DataValue> dataValues = liveOpcUaDriver.readLiveValues(channel, nodeIds);
-
-        List<Map<String, Object>> resp = new ArrayList<>();
-        for (String nodeId : nodeIds) {
-            DataValue dv = dataValues.get(nodeId);
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("nodeId", nodeId);
-            if (dv != null && dv.getStatusCode() != null && dv.getStatusCode().isGood()) {
-                Object val = dv.getValue() != null ? dv.getValue().getValue() : null;
-                item.put("value", val);
-                item.put("quality", "GOOD (0x00000000)");
-                item.put("timestamp", dv.getSourceTime() != null ? dv.getSourceTime().getJavaInstant().toString() : Instant.now().toString());
-            } else {
-                item.put("quality", "BAD (0x80050000 - Bad_CommunicationFailure)");
-                item.put("timestamp", Instant.now().toString());
-            }
-            resp.add(item);
+    @PostMapping("/channels/{channelId}/tags/read-values")
+    @Operation(summary = "High-speed batch read of multiple live node IDs in a single OPC-UA request packet")
+    public ResponseEntity<List<Map<String, Object>>> readLiveValues(
+            @PathVariable String channelId,
+            @RequestBody List<String> nodeIds
+    ) {
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
+        if (chanOpt.isEmpty() || nodeIds == null || nodeIds.isEmpty()) {
+            return ResponseEntity.ok(Collections.emptyList());
         }
 
-        return ResponseEntity.ok(resp);
+        NetworkDeviceChannelEntity channel = chanOpt.get();
+        Map<String, DataValue> liveValues = liveOpcUaDriver.readLiveValues(channel, nodeIds);
+
+        String chIdStr = channel.getId().toString();
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (String nid : nodeIds) {
+            DataValue dv = liveValues.get(nid);
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("nodeId", nid);
+
+            if (dv != null && dv.getStatusCode() != null && dv.getStatusCode().isGood()) {
+                Object cleanVal = OpcUaValueHelper.sanitizeAndExtractValue(dv.getValue() != null ? dv.getValue().getValue() : null);
+                String ts = dv.getSourceTime() != null ? dv.getSourceTime().getJavaInstant().toString() : Instant.now().toString();
+                item.put("value", cleanVal != null ? cleanVal : "");
+                item.put("quality", "GOOD (0x00000000)");
+                item.put("timestamp", ts);
+
+                Map<String, Object> payload = Map.of(
+                        "channelId", chIdStr,
+                        "nodeId", nid,
+                        "value", cleanVal != null ? cleanVal : "",
+                        "quality", "GOOD (0x00000000)",
+                        "timestamp", ts
+                );
+                networkChannelService.putTelemetryCache(chIdStr, nid, payload);
+            } else {
+                item.put("value", "--");
+                item.put("quality", (dv != null && dv.getStatusCode() != null) ? dv.getStatusCode().toString() : "BAD (0x80050000)");
+                item.put("timestamp", Instant.now().toString());
+            }
+            result.add(item);
+        }
+
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/channels/{channelId}/tags/write")
-    @Operation(summary = "Execute real-time tag write on live OPC-UA server")
-    public ResponseEntity<Map<String, Object>> writeChannelTag(
+    @Operation(summary = "Write a value to a live tag on the PLC and record in DB")
+    public ResponseEntity<Map<String, Object>> writeTag(
             @PathVariable String channelId,
             @RequestBody Map<String, Object> req
     ) {
-        Optional<NetworkDeviceChannelEntity> chanOpt = resolveChannel(channelId);
+        Optional<NetworkDeviceChannelEntity> chanOpt = networkChannelService.resolveChannel(channelId);
         if (chanOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
@@ -683,11 +670,22 @@ public class NetworkChannelController {
         String nodeId = String.valueOf(req.get("nodeId"));
         Object value = req.get("value");
 
-        // Write live over socket to OPC-UA server
         boolean liveSuccess = true;
         String statusDetail = "Good";
         if ("OPC_UA".equalsIgnoreCase(channel.getProtocol())) {
-            org.eclipse.milo.opcua.stack.core.types.builtin.StatusCode sc = liveOpcUaDriver.writeLiveValueWithStatus(channel, nodeId, value);
+            String targetWriteNodeId = nodeId;
+            if (nodeId.contains("#")) {
+                String parentId = nodeId.substring(0, nodeId.indexOf("#"));
+                String field = nodeId.substring(nodeId.indexOf("#") + 1);
+                targetWriteNodeId = parentId.endsWith("\"")
+                        ? (parentId.substring(0, parentId.length() - 1) + "." + field + "\"")
+                        : (parentId + "." + field);
+            }
+
+            StatusCode sc = liveOpcUaDriver.writeLiveValueWithStatus(channel, targetWriteNodeId, value);
+            if (sc == null || !sc.isGood()) {
+                sc = liveOpcUaDriver.writeLiveValueWithStatus(channel, nodeId, value);
+            }
             liveSuccess = sc != null && sc.isGood();
             statusDetail = sc != null ? sc.toString() : "Connection offline";
         }
@@ -715,6 +713,17 @@ public class NetworkChannelController {
                     .build();
         }
 
+        String chIdStr = channel.getId().toString();
+        Map<String, Object> payload = Map.of(
+                "channelId", chIdStr,
+                "nodeId", nodeId,
+                "value", value != null ? value : "",
+                "quality", liveSuccess ? "GOOD (0x00000000)" : ("BAD (" + statusDetail + ")"),
+                "timestamp", Instant.now().toString()
+        );
+        networkChannelService.putTelemetryCache(chIdStr, nodeId, payload);
+        broadcastTagUpdate(chIdStr, payload);
+
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("success", liveSuccess);
         res.put("channelCode", channel.getChannelCode());
@@ -724,114 +733,8 @@ public class NetworkChannelController {
         res.put("message", liveSuccess
                 ? String.format("Successfully wrote value '%s' to live tag %s", value, nodeId)
                 : String.format("Failed to write value '%s' to live tag %s (%s)", value, nodeId, statusDetail));
-        res.put("tag", tagEntityToMap(tag));
+        res.put("tag", networkChannelService.tagEntityToMap(tag));
 
         return ResponseEntity.ok(res);
-    }
-
-    private Optional<NetworkDeviceChannelEntity> resolveChannel(String channelId) {
-        try {
-            UUID uuid = UUID.fromString(channelId);
-            return channelRepository.findById(uuid);
-        } catch (IllegalArgumentException e) {
-            return channelRepository.findByChannelCode(channelId);
-        }
-    }
-
-    private Map<String, Object> entityToMap(NetworkDeviceChannelEntity e) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", e.getId() != null ? e.getId().toString() : e.getChannelCode());
-        m.put("channelCode", e.getChannelCode());
-        m.put("name", e.getChannelName());
-        m.put("deviceType", e.getDeviceType());
-        m.put("protocol", e.getProtocol());
-        m.put("endpointUrl", e.getEndpointUrl());
-        m.put("status", e.getStatus());
-        m.put("securityPolicy", e.getSecurityPolicy());
-        m.put("authType", e.getAuthType());
-        m.put("tagsCount", e.getTagsCount() != null ? e.getTagsCount() : 0);
-        m.put("latencyMs", e.getLatencyMs() != null ? e.getLatencyMs() : 3.5);
-        m.put("reconnectIntervalMs", e.getReconnectIntervalMs() != null ? e.getReconnectIntervalMs() : 3000);
-        m.put("sessionTimeoutMs", e.getSessionTimeoutMs() != null ? e.getSessionTimeoutMs() : 60000);
-        m.put("lastActive", "Just now");
-
-        Map<String, Object> configMap = Collections.emptyMap();
-        if (e.getConfig() != null && !e.getConfig().isBlank()) {
-            try {
-                configMap = objectMapper.readValue(e.getConfig(), new TypeReference<>() {});
-            } catch (Exception ignored) {}
-        }
-        m.put("config", configMap);
-        return m;
-    }
-
-    private Map<String, Object> tagEntityToMap(NetworkDeviceTagEntity t) {
-        return tagEntityToMap(t, null, t.getId() != null, t.getId() != null ? t.getId().toString() : t.getNodeId());
-    }
-
-    private Map<String, Object> tagEntityToMap(
-            NetworkDeviceTagEntity t,
-            NetworkTagAcquisitionConfigEntity cfg,
-            boolean isMonitored,
-            String explicitId
-    ) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", explicitId != null ? explicitId : (t.getId() != null ? t.getId().toString() : t.getNodeId()));
-        m.put("channelId", t.getChannelId() != null ? t.getChannelId().toString() : "");
-        m.put("name", t.getTagName());
-        m.put("nodeId", t.getNodeId());
-        m.put("folder", t.getFolderPath());
-        m.put("dataType", t.getDataType() != null ? t.getDataType() : "Variant");
-
-        // Overlay latest live push telemetry from Milo subscription cache if available
-        Map<String, Object> cachedUpdate = null;
-        if (t.getChannelId() != null) {
-            Map<String, Map<String, Object>> chanMap = latestTelemetryCache.get(t.getChannelId().toString());
-            if (chanMap != null) {
-                cachedUpdate = chanMap.get(t.getNodeId());
-            }
-        }
-
-        Object rawVal = (cachedUpdate != null && cachedUpdate.get("value") != null)
-                ? cachedUpdate.get("value")
-                : t.getCurrentValue();
-        String quality = (cachedUpdate != null && cachedUpdate.get("quality") != null)
-                ? String.valueOf(cachedUpdate.get("quality"))
-                : (t.getQuality() != null ? t.getQuality() : "GOOD (0x00000000)");
-        String ts = (cachedUpdate != null && cachedUpdate.get("timestamp") != null)
-                ? String.valueOf(cachedUpdate.get("timestamp"))
-                : (t.getLastUpdated() != null ? t.getLastUpdated().toString() : Instant.now().toString());
-
-        Object parsedVal = rawVal;
-        if (rawVal instanceof String sVal && !"--".equals(sVal)) {
-            if ("Boolean".equalsIgnoreCase(t.getDataType())) {
-                parsedVal = Boolean.parseBoolean(sVal);
-            } else if ("Int16".equalsIgnoreCase(t.getDataType()) || "Int32".equalsIgnoreCase(t.getDataType()) || "Int64".equalsIgnoreCase(t.getDataType())) {
-                try {
-                    parsedVal = Long.parseLong(sVal);
-                } catch (Exception ignored) {}
-            } else if ("Float".equalsIgnoreCase(t.getDataType()) || "Double".equalsIgnoreCase(t.getDataType())) {
-                try {
-                    parsedVal = Double.parseDouble(sVal);
-                } catch (Exception ignored) {}
-            }
-        }
-
-        m.put("quality", quality);
-        m.put("value", parsedVal);
-        m.put("timestamp", ts);
-        m.put("subscribed", isMonitored);
-        m.put("writable", t.getIsWritable() != null ? t.getIsWritable() : true);
-        m.put("isMonitored", isMonitored);
-
-        // 3NF Operational Acquisition Policy
-        m.put("acquisitionMethod", cfg != null && cfg.getAcquisitionMethod() != null ? cfg.getAcquisitionMethod() : "SUBSCRIPTION");
-        m.put("samplingIntervalMs", cfg != null && cfg.getSamplingIntervalMs() != null ? cfg.getSamplingIntervalMs() : 250);
-        m.put("publishingIntervalMs", cfg != null && cfg.getPublishingIntervalMs() != null ? cfg.getPublishingIntervalMs() : 500);
-        m.put("deadbandValue", cfg != null && cfg.getDeadbandValue() != null ? cfg.getDeadbandValue() : 0.0);
-        m.put("isLoggingEnabled", cfg != null && cfg.getIsLoggingEnabled() != null ? cfg.getIsLoggingEnabled() : false);
-        m.put("isActive", cfg != null && cfg.getIsActive() != null ? cfg.getIsActive() : true);
-
-        return m;
     }
 }

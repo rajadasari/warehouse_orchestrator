@@ -48,8 +48,8 @@ public class ResourceEntity {
     private String status = "ACTIVE";
 
     @Builder.Default
-    @Column(name = "category", length = 30)
-    private String category = "SOFTWARE"; // 'HARDWARE', 'DEVICE', 'SOFTWARE'
+    @Column(name = "category", nullable = false, length = 30)
+    private String category = "GENERAL";
 
     @Column(name = "template_code", length = 60)
     private String templateCode;
@@ -66,28 +66,25 @@ public class ResourceEntity {
     private String application = "WMS";
 
     /**
-     * @deprecated Legacy field. Replaced by OT Gateway communicationMethod.
+     * @deprecated Legacy field. Digital twins are protocol-free; protocol/gateway mapping belongs to NetworkChannel.
      */
     @Deprecated
-    @Builder.Default
-    @Column(name = "protocol", nullable = false, length = 10)
-    private String protocol = "http";
+    @Column(name = "protocol", length = 30)
+    private String protocol;
 
     /**
-     * @deprecated Legacy field. Endpoint coordinates reside in customProperties or OT Gateway driver config.
+     * @deprecated Legacy field. Physical/network endpoint coordinates reside in NetworkChannel or customProperties.
      */
     @Deprecated
-    @Builder.Default
-    @Column(name = "host", nullable = false, length = 255)
-    private String host = "127.0.0.1";
+    @Column(name = "host", length = 255)
+    private String host;
 
     /**
-     * @deprecated Legacy field. Endpoint coordinates reside in customProperties or OT Gateway driver config.
+     * @deprecated Legacy field. Physical/network endpoint coordinates reside in NetworkChannel or customProperties.
      */
     @Deprecated
-    @Builder.Default
-    @Column(name = "port", nullable = false)
-    private int port = 8080;
+    @Column(name = "port")
+    private Integer port;
 
     @Column(name = "documentation_url", length = 500)
     private String documentationUrl;

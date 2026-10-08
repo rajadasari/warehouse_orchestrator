@@ -9,7 +9,8 @@ import {
   X, 
   ListPlus, 
   Radio, 
-  Edit2
+  Edit2,
+  Lock
 } from 'lucide-react';
 import { Button } from '../../../../components/common/Button';
 import { Badge } from '../../../../components/common/Badge';
@@ -287,8 +288,30 @@ export const TemplatePropertiesTab: React.FC<TemplatePropertiesTabProps> = ({
                     >
                       {/* Property Name */}
                       <td style={{ padding: '10px 14px' }}>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-                          {prop.key}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                            {prop.key}
+                          </span>
+                          {prop.isBaseProperty && (
+                            <span
+                              title="Standard base property - protected on platform archetypes"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                color: '#38BDF8',
+                                backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                                border: '1px solid rgba(56, 189, 248, 0.3)',
+                                padding: '1px 5px',
+                                borderRadius: '4px'
+                              }}
+                            >
+                              <Lock size={9} />
+                              BASE
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -431,21 +454,23 @@ export const TemplatePropertiesTab: React.FC<TemplatePropertiesTabProps> = ({
                           {/* Delete button */}
                           <button
                             type="button"
-                            onClick={() => handleRemoveProperty(idx)}
+                            disabled={prop.isBaseProperty}
+                            onClick={() => !prop.isBaseProperty && handleRemoveProperty(idx)}
                             style={{
                               background: 'transparent',
-                              border: '1px solid rgba(239, 68, 68, 0.3)',
-                              color: '#EF4444',
-                              cursor: 'pointer',
+                              border: prop.isBaseProperty ? '1px solid var(--border-default)' : '1px solid rgba(239, 68, 68, 0.3)',
+                              color: prop.isBaseProperty ? 'var(--text-disabled)' : '#EF4444',
+                              cursor: prop.isBaseProperty ? 'not-allowed' : 'pointer',
                               padding: '6px',
                               borderRadius: '4px',
                               minWidth: '48px',
                               minHeight: '48px',
                               display: 'inline-flex',
                               alignItems: 'center',
-                              justifyContent: 'center'
+                              justifyContent: 'center',
+                              opacity: prop.isBaseProperty ? 0.35 : 1
                             }}
-                            title="Delete property"
+                            title={prop.isBaseProperty ? 'Base platform properties cannot be deleted' : 'Delete property'}
                           >
                             <Trash2 size={14} />
                           </button>

@@ -40,20 +40,24 @@ public class ResourceTemplateEntity {
     @Column(name = "template_name", nullable = false, length = 100)
     private String templateName;
 
+    @Builder.Default
     @Column(name = "category", nullable = false, length = 30)
-    private String category; // 'PHYSICAL', 'SOFTWARE', 'VIRTUAL', 'LOGICAL'
+    private String category = "GENERAL";
 
     @Column(name = "resource_type", nullable = false, length = 50)
-    private String resourceType; // 'CONVEYOR', 'TURNTABLE', 'AGV', 'PLC', etc.
+    private String resourceType; // e.g. 'EQUIPMENT_NODE', 'STORAGE_LOCATION', 'PROCESS_CELL', etc.
 
-    @Column(name = "communication_method", nullable = false, length = 50)
-    private String communicationProtocol; // 'PLC_S7', 'MODBUS_TCP', 'TCP_SOCKET', 'SERIAL', 'REST', 'OPC_UA', 'MQTT/VDA5050', 'INTERNAL'
+    @Column(name = "communication_method", length = 50)
+    private String communicationProtocol;
 
     @Column(name = "description", length = 500)
     private String description;
 
     @Column(name = "documentation_url", length = 500)
     private String documentationUrl;
+
+    @Column(name = "response_token_property_name", length = 100)
+    private String responseTokenPropertyName;
 
     public String getCommunicationMethod() {
         return communicationProtocol;

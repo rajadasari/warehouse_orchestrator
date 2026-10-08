@@ -58,6 +58,23 @@ public class NetworkDeviceTagEntity {
     @Column(name = "is_subscribed", nullable = false)
     private Boolean isSubscribed = true;
 
+    @Column(name = "parent_tag_id")
+    private UUID parentTagId;
+
+    @Transient
+    private String parentNodeId;
+
+    @Builder.Default
+    @Column(name = "is_udt", nullable = false)
+    private Boolean isUdt = false;
+
+    @Builder.Default
+    @Column(name = "is_udt_member", nullable = false)
+    private Boolean isUdtMember = false;
+
+    @Column(name = "member_path", length = 250)
+    private String memberPath;
+
     @Builder.Default
     @Column(name = "last_updated", nullable = false)
     private Instant lastUpdated = Instant.now();

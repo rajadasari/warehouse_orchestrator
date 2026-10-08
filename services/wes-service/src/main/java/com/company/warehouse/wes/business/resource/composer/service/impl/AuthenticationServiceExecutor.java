@@ -76,9 +76,10 @@ public class AuthenticationServiceExecutor implements EntityServiceExecutor {
         }
 
         // 3. Resolve token response field
-        String tokenField = resolveConfig(activeMethodConfig, effectiveProps, parameterBindings, "tokenResponseField", "token_field", "tokenField");
+        String tokenField = resolveConfig(activeMethodConfig, effectiveProps, parameterBindings, 
+                "responseTokenPropertyName", "response_token_property_name", "tokenResponseField", "token_field", "tokenField");
         if (tokenField == null || tokenField.isBlank()) {
-            tokenField = "access_token";
+            tokenField = "accessToken";
         }
 
         // 4. Resolve credentials

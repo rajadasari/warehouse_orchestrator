@@ -417,42 +417,54 @@ export const WorkflowComposerView: React.FC = () => {
       // Auto-save definition first so backend DB contains the latest nodes and edges
       const activeDef = await ensureWorkflowSaved();
 
-      // Extract custom manual fields or raw JSON payload from node config
+      // Extract payload according to trigger mode
       let customPayload: Record<string, unknown> = {};
-      if (Array.isArray(node.config.manualFields)) {
-        (node.config.manualFields as Array<{ name: string; value: unknown }>).forEach(f => {
-          if (f.name) customPayload[f.name] = f.value;
-        });
-      }
-      if (node.config.initialPayload && typeof node.config.initialPayload === 'object') {
-        customPayload = { ...customPayload, ...node.config.initialPayload };
-      } else if (typeof node.config.rawJsonPayload === 'string') {
-        try {
-          const parsed = JSON.parse(node.config.rawJsonPayload);
-          if (typeof parsed === 'object' && parsed !== null) {
-            customPayload = { ...customPayload, ...parsed };
-          }
-        } catch (_) {}
+      const payloadMode = String(node.config.triggerPayloadMode || 'CONFIGURED_INPUTS');
+
+      if (payloadMode === 'SIMPLE_START') {
+        customPayload = {};
+      } else if (payloadMode === 'UPSTREAM_PAYLOAD') {
+        const varName = String(node.config.upstreamVariableName || 'serviceOutcome');
+        const outcomeData = node.config.upstreamMockPayload && typeof node.config.upstreamMockPayload === 'object'
+          ? node.config.upstreamMockPayload
+          : (node.config.initialPayload || {});
+        customPayload[varName] = outcomeData;
+      } else {
+        if (Array.isArray(node.config.manualFields)) {
+          (node.config.manualFields as Array<{ name: string; value: unknown }>).forEach(f => {
+            if (f.name) customPayload[f.name] = f.value;
+          });
+        }
+        if (node.config.initialPayload && typeof node.config.initialPayload === 'object') {
+          customPayload = { ...customPayload, ...node.config.initialPayload };
+        } else if (typeof node.config.rawJsonPayload === 'string') {
+          try {
+            const parsed = JSON.parse(node.config.rawJsonPayload);
+            if (typeof parsed === 'object' && parsed !== null) {
+              customPayload = { ...customPayload, ...parsed };
+            }
+          } catch (_) {}
+        }
       }
 
-      const palletLpn = String(customPayload.palletLpn || node.config.palletLpn || node.config.entityReference || 'PLT-MANUAL-001');
-      const sku = String(customPayload.sku || node.config.sku || 'SKU-AMBIENT-01');
-      const quantity = Number(customPayload.quantity ?? node.config.quantity ?? 1);
-      const entityRef = String(customPayload.entityReference || palletLpn);
+      const defaultRef = payloadMode === 'SIMPLE_START' ? `EVENT-${Date.now()}` : 'PLT-MANUAL-001';
+      const entityRef = String(customPayload.entityReference || node.config.entityReference || defaultRef);
 
       const res = await workflowService.triggerWorkflow({
         workflowCode: activeDef.workflowCode,
         entityReference: entityRef.trim(),
         initialContext: {
           ...customPayload,
-          ...node.config,
-          palletLpn: palletLpn.trim(),
-          sku: sku.trim(),
-          quantity,
           sourceChannel: String(node.config.sourceChannel || 'MANUAL_CLICK'),
           triggeredByNodeId: node.id,
-          triggerEvent: String(node.config.triggerEvent || 'MANUAL_OPERATOR_CLICK'),
-          scanTimestamp: new Date().toISOString()
+          triggerEvent: String(node.config.triggerEvent || (payloadMode === 'SIMPLE_START' ? 'WORKFLOW_STARTED' : 'MANUAL_OPERATOR_CLICK')),
+          triggerPayloadMode: payloadMode,
+          scanTimestamp: new Date().toISOString(),
+          ...(payloadMode === 'CONFIGURED_INPUTS' ? {
+            palletLpn: String(customPayload.palletLpn || node.config.palletLpn || entityRef),
+            sku: String(customPayload.sku || node.config.sku || 'SKU-GENERIC'),
+            quantity: Number(customPayload.quantity ?? node.config.quantity ?? 1)
+          } : {})
         }
       });
       setCurrentInstance(res);

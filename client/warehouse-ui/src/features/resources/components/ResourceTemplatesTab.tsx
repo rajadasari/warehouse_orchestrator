@@ -9,7 +9,8 @@ import {
   RefreshCw,
   Search,
   Plus,
-  Edit2
+  Edit2,
+  Copy
 } from 'lucide-react';
 import { 
   ResourceTemplateItem, 
@@ -23,13 +24,17 @@ import { Button } from '../../../components/common/Button';
 import { Badge } from '../../../components/common/Badge';
 
 export interface ResourceTemplatesTabProps {
+  mode?: 'SYSTEM' | 'CUSTOM' | 'ALL';
   onOpenCreate?: () => void;
   onOpenEdit?: (template: ResourceTemplateItem) => void;
+  onCloneAsCustom?: (template: ResourceTemplateItem) => void;
 }
 
 export const ResourceTemplatesTab: React.FC<ResourceTemplatesTabProps> = ({
+  mode = 'ALL',
   onOpenCreate,
-  onOpenEdit
+  onOpenEdit,
+  onCloneAsCustom
 }) => {
   const [templates, setTemplates] = useState<ResourceTemplateItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -124,12 +129,18 @@ export const ResourceTemplatesTab: React.FC<ResourceTemplatesTabProps> = ({
     reader.readAsText(file);
   };
 
-  const filteredTemplates = templates.filter(t => 
-    !searchQuery.trim() ||
-    t.templateCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.templateName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.category.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredTemplates = templates.filter(t => {
+    if (mode === 'SYSTEM' && !t.systemTemplate) return false;
+    if (mode === 'CUSTOM' && t.systemTemplate) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      t.templateCode.toLowerCase().includes(q) ||
+      t.templateName.toLowerCase().includes(q) ||
+      (t.category?.toLowerCase() || 'general').includes(q) ||
+      (t.resourceType && t.resourceType.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, gap: '14px' }}>
@@ -314,7 +325,9 @@ export const ResourceTemplatesTab: React.FC<ResourceTemplatesTabProps> = ({
                     <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{t.application || 'Generic'}</div>
                   </td>
                   <td style={{ padding: '8px 12px' }}>
-                    <Badge variant="neutral">{t.category}</Badge>
+                    <Badge variant={t.category === 'OT_DEVICE' ? 'info' : 'neutral'}>
+                      {t.category === 'OT_DEVICE' ? 'OT Device' : (t.category || 'GENERAL')}
+                    </Badge>
                   </td>
                   <td style={{ padding: '8px 12px' }}>
                     <div>{t.resourceType}</div>
@@ -322,7 +335,7 @@ export const ResourceTemplatesTab: React.FC<ResourceTemplatesTabProps> = ({
                   </td>
                   <td style={{ padding: '8px 12px' }}>
                     <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      {(t.propertySchema || []).length} properties, {(t.methodsSchema || []).length} methods
+                      {(t.propertySchema || []).length} properties, {(t.methodsSchema || []).length} services
                     </span>
                   </td>
                   <td style={{ padding: '8px 12px', textAlign: 'right' }}>
@@ -341,6 +354,22 @@ export const ResourceTemplatesTab: React.FC<ResourceTemplatesTabProps> = ({
                       >
                         <Edit2 size={14} />
                       </button>
+                      {t.systemTemplate && onCloneAsCustom && (
+                        <button
+                          type="button"
+                          onClick={() => onCloneAsCustom(t)}
+                          title="Clone as Custom Template"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#10B981',
+                            cursor: 'pointer',
+                            padding: '4px'
+                          }}
+                        >
+                          <Copy size={14} />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleExportSingle(t.templateCode)}

@@ -34,50 +34,58 @@ public class EntityMethodResolutionEngine {
     public Map<String, Map<String, Object>> resolveMethods(String templateCode, Map<String, Object> instanceMethodsConfig) {
         Map<String, Map<String, Object>> resolved = new LinkedHashMap<>();
 
-        // Tier 1: Base System Archetype Service Definitions (Code Registry)
+        // Tier 1 & 2: Base System Archetypes & Database Template Services (Iterating all combined templates)
         if (templateCode != null && !templateCode.trim().isEmpty()) {
-            String cleanCode = templateCode.trim().toUpperCase();
-            archetypeRegistry.getTemplate(cleanCode).ifPresent(tpl -> {
-                if (tpl.getServiceDefinitions() != null) {
-                    for (ServiceDefinition s : tpl.getServiceDefinitions()) {
-                        if (s.getName() == null || s.getName().isBlank()) continue;
-                        String mName = s.getName().trim().toUpperCase();
-                        Map<String, Object> m = new LinkedHashMap<>();
-                        m.put("methodName", mName);
-                        m.put("displayName", s.getDisplayName() != null ? s.getDisplayName() : mName);
-                        m.put("category", s.getCategory() != null ? s.getCategory() : "General");
-                        m.put("description", s.getDescription() != null ? s.getDescription() : "");
-                        if (s.getPathTemplate() != null) m.put("path", s.getPathTemplate());
-                        if (s.getHttpMethod() != null) m.put("httpMethod", s.getHttpMethod());
-                        if (s.getParametersSchema() != null) m.put("parametersSchema", s.getParametersSchema());
-                        if (s.getOutputSchema() != null) m.put("outputSchema", s.getOutputSchema());
-                        m.put("origin", "SYSTEM_ARCHETYPE");
-                        resolved.put(mName, m);
-                    }
-                }
-            });
+            String[] codes = templateCode.split(",");
+            for (String rawCode : codes) {
+                String cleanCode = rawCode.trim().toUpperCase();
+                if (cleanCode.isEmpty()) continue;
 
-            // Tier 2: Database Template Methods Schema (PostgreSQL wo.resource_template)
-            try {
-                Optional<ResourceTemplateEntity> tplOpt = templateRepository.findByTemplateCode(cleanCode);
-                if (tplOpt.isPresent() && tplOpt.get().getMethodsSchema() != null) {
-                    String schemaJson = tplOpt.get().getMethodsSchema();
-                    if (!schemaJson.isBlank() && !schemaJson.equals("[]") && !schemaJson.equals("{}")) {
-                        List<Map<String, Object>> schemaList = objectMapper.readValue(schemaJson, new TypeReference<>() {});
-                        for (Map<String, Object> item : schemaList) {
-                            String mName = item.containsKey("name") ? String.valueOf(item.get("name")).trim().toUpperCase()
-                                    : item.containsKey("methodName") ? String.valueOf(item.get("methodName")).trim().toUpperCase() : null;
-                            if (mName != null && !mName.isBlank()) {
-                                Map<String, Object> m = resolved.computeIfAbsent(mName, k -> new LinkedHashMap<>());
-                                m.putAll(item);
-                                m.put("methodName", mName);
-                                m.put("origin", "TEMPLATE");
+                // Tier 1: Base System Archetype Service Definitions (Code Registry)
+                archetypeRegistry.getTemplate(cleanCode).ifPresent(tpl -> {
+                    if (tpl.getServiceDefinitions() != null) {
+                        for (ServiceDefinition s : tpl.getServiceDefinitions()) {
+                            if (s.getName() == null || s.getName().isBlank()) continue;
+                            String mName = s.getName().trim().toUpperCase();
+                            Map<String, Object> m = new LinkedHashMap<>();
+                            m.put("methodName", mName);
+                            m.put("displayName", s.getDisplayName() != null ? s.getDisplayName() : mName);
+                            m.put("category", s.getCategory() != null ? s.getCategory() : "General");
+                            m.put("description", s.getDescription() != null ? s.getDescription() : "");
+                            m.put("sourceTemplate", cleanCode);
+                            if (s.getPathTemplate() != null) m.put("path", s.getPathTemplate());
+                            if (s.getHttpMethod() != null) m.put("httpMethod", s.getHttpMethod());
+                            if (s.getParametersSchema() != null) m.put("parametersSchema", s.getParametersSchema());
+                            if (s.getOutputSchema() != null) m.put("outputSchema", s.getOutputSchema());
+                            m.put("origin", "SYSTEM_ARCHETYPE");
+                            resolved.put(mName, m);
+                        }
+                    }
+                });
+
+                // Tier 2: Database Template Methods Schema (PostgreSQL wo.resource_template)
+                try {
+                    Optional<ResourceTemplateEntity> tplOpt = templateRepository.findByTemplateCode(cleanCode);
+                    if (tplOpt.isPresent() && tplOpt.get().getMethodsSchema() != null) {
+                        String schemaJson = tplOpt.get().getMethodsSchema();
+                        if (!schemaJson.isBlank() && !schemaJson.equals("[]") && !schemaJson.equals("{}")) {
+                            List<Map<String, Object>> schemaList = objectMapper.readValue(schemaJson, new TypeReference<>() {});
+                            for (Map<String, Object> item : schemaList) {
+                                String mName = item.containsKey("name") ? String.valueOf(item.get("name")).trim().toUpperCase()
+                                        : item.containsKey("methodName") ? String.valueOf(item.get("methodName")).trim().toUpperCase() : null;
+                                if (mName != null && !mName.isBlank()) {
+                                    Map<String, Object> m = resolved.computeIfAbsent(mName, k -> new LinkedHashMap<>());
+                                    m.putAll(item);
+                                    m.put("methodName", mName);
+                                    m.put("sourceTemplate", cleanCode);
+                                    m.put("origin", "TEMPLATE");
+                                }
                             }
                         }
                     }
+                } catch (Exception e) {
+                    log.warn("Failed to parse methods_schema for template '{}': {}", cleanCode, e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("Failed to parse methods_schema for template '{}': {}", cleanCode, e.getMessage());
             }
         }
 

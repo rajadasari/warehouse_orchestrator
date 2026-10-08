@@ -18,6 +18,11 @@ public class WorkflowNodeRegistry {
 
     private final List<WorkflowNodeHandler> handlers;
 
+    public boolean supports(String nodeType) {
+        if (nodeType == null || nodeType.isBlank()) return false;
+        return handlers.stream().anyMatch(h -> h.supports(nodeType));
+    }
+
     public NodeExecutionResult executeNode(WorkflowNodeExecutionContext context) {
         String nodeType = context.nodeType();
         for (WorkflowNodeHandler handler : handlers) {
@@ -32,7 +37,7 @@ public class WorkflowNodeRegistry {
             }
         }
 
-        log.info("No dedicated handler for step '{}' ({}), passing as generic success", context.nodeLabel(), nodeType);
-        return NodeExecutionResult.success(Map.of("executed", true, "genericType", nodeType));
+        log.warn("No dedicated handler found for node '{}' (type: {}). Rejecting execution.", context.nodeLabel(), nodeType);
+        return NodeExecutionResult.failed(String.format("Unsupported workflow node type '%s' on node '%s'", nodeType, context.nodeLabel()));
     }
 }

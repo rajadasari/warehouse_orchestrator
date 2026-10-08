@@ -12,6 +12,7 @@ import com.company.warehouse.wes.data.repository.ResourceRepository;
 import com.company.warehouse.wes.data.repository.ResourceTemplateRepository;
 import com.company.warehouse.wes.business.resource.composer.EntityComposerMapper;
 import com.company.warehouse.wes.business.resource.composer.archetype.EntityArchetypeRegistry;
+import com.company.warehouse.wes.business.resource.composer.archetype.GeneralDigitalTwinEntityArchetype;
 import com.company.warehouse.wes.business.resource.composer.archetype.OpcUaClientEntityArchetype;
 import com.company.warehouse.wes.business.resource.composer.archetype.OpcUaServerEntityArchetype;
 import com.company.warehouse.wes.business.resource.composer.archetype.RestSoftwareEntityArchetype;
@@ -36,6 +37,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,7 +61,8 @@ class ResourceManagerTest {
         RestSoftwareEntityArchetype restArchetype = new RestSoftwareEntityArchetype();
         OpcUaClientEntityArchetype opcUaClientArchetype = new OpcUaClientEntityArchetype();
         OpcUaServerEntityArchetype opcUaServerArchetype = new OpcUaServerEntityArchetype();
-        EntityArchetypeRegistry archetypeRegistry = new EntityArchetypeRegistry(List.of(restArchetype, opcUaClientArchetype, opcUaServerArchetype));
+        GeneralDigitalTwinEntityArchetype generalArchetype = new GeneralDigitalTwinEntityArchetype();
+        EntityArchetypeRegistry archetypeRegistry = new EntityArchetypeRegistry(List.of(restArchetype, opcUaClientArchetype, opcUaServerArchetype, generalArchetype));
         EntityPropertyResolutionEngine propertyResolutionEngine = new EntityPropertyResolutionEngine(archetypeRegistry);
         EntityTemplateValidator templateValidator = new EntityTemplateValidator();
         EntityComposerMapper composerMapper = new EntityComposerMapper(objectMapper);
@@ -235,6 +238,7 @@ class ResourceManagerTest {
                 .findFirst()
                 .orElseThrow();
         assertThat(clientTpl.isSystemTemplate()).isTrue();
+        assertThat(clientTpl.getCategory()).isEqualTo("OT_DEVICE");
         assertThat(clientTpl.getCommunicationProtocol()).isEqualTo("OPC_UA");
         assertThat(clientTpl.getPropertySchema()).hasSize(14);
         assertThat(clientTpl.getMethodsSchema()).hasSize(7);
@@ -247,8 +251,31 @@ class ResourceManagerTest {
                 .findFirst()
                 .orElseThrow();
         assertThat(serverTpl.isSystemTemplate()).isTrue();
+        assertThat(serverTpl.getCategory()).isEqualTo("OT_DEVICE");
         assertThat(serverTpl.getPropertySchema()).hasSize(8);
         assertThat(serverTpl.getMethodsSchema()).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("Verify stale DB template category is overwritten by authoritative archetype OT_DEVICE")
+    void testStaleDbTemplateCategoryOverwrittenByArchetype() {
+        ResourceTemplateEntity staleDbEntity = ResourceTemplateEntity.builder()
+                .templateCode("OPC_UA_CLIENT")
+                .templateName("Old OPC UA")
+                .category("PHYSICAL")
+                .propertySchema("[]")
+                .defaultProperties("{}")
+                .build();
+        when(templateRepository.findAll()).thenReturn(List.of(staleDbEntity));
+
+        List<ResourceTemplateDto> templates = resourceManager.getAllTemplates(null);
+        ResourceTemplateDto clientTpl = templates.stream()
+                .filter(t -> "OPC_UA_CLIENT".equals(t.getTemplateCode()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(clientTpl.getCategory()).isEqualTo("OT_DEVICE");
+        verify(templateRepository).save(any(ResourceTemplateEntity.class));
     }
 
     @Test
@@ -268,7 +295,7 @@ class ResourceManagerTest {
                 .resourceId("PLC-01")
                 .name("Line 1 Main PLC")
                 .type("PLC")
-                .category("PHYSICAL")
+                .category("OT_DEVICE")
                 .templateCode("OPC_UA_CLIENT")
                 .templateProperties(Map.of("endpointUrl", "opc.tcp://192.168.1.100:4840", "authType", "ANONYMOUS"))
                 .build();
@@ -278,7 +305,7 @@ class ResourceManagerTest {
                 .resourceId("PLC-01")
                 .name("Line 1 Main PLC")
                 .type("PLC")
-                .category("PHYSICAL")
+                .category("OT_DEVICE")
                 .templateCode("OPC_UA_CLIENT")
                 .status("ACTIVE")
                 .templateProperties("{\"endpointUrl\":\"opc.tcp://192.168.1.100:4840\",\"authType\":\"ANONYMOUS\"}")
@@ -295,5 +322,122 @@ class ResourceManagerTest {
         assertThat(response.getTemplateCode()).isEqualTo("OPC_UA_CLIENT");
         assertThat(response.getEffectiveProperties()).containsEntry("endpointUrl", "opc.tcp://192.168.1.100:4840");
         assertThat(response.getEffectiveMethods()).asList().isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("Verify resource creation without type inherits resourceType from template")
+    void testCreateResourceWithoutTypeInheritsFromTemplate() {
+        when(resourceRepository.existsByResourceId("PLC-AUTO-TYPE")).thenReturn(false);
+
+        ResourceRequestDto request = ResourceRequestDto.builder()
+                .resourceId("PLC-AUTO-TYPE")
+                .name("Auto Type PLC")
+                .templateCode("OPC_UA_CLIENT")
+                .build();
+
+        ResourceEntity savedEntity = ResourceEntity.builder()
+                .id(UUID.randomUUID())
+                .resourceId("PLC-AUTO-TYPE")
+                .name("Auto Type PLC")
+                .type("INDUSTRIAL_NODE")
+                .category("OT_DEVICE")
+                .templateCode("OPC_UA_CLIENT")
+                .status("ACTIVE")
+                .templateProperties("{}")
+                .customProperties("{}")
+                .methodsConfig("{}")
+                .build();
+
+        when(resourceRepository.save(any(ResourceEntity.class))).thenReturn(savedEntity);
+
+        ResourceResponseDto response = resourceManager.createResource(request);
+
+        assertThat(response.getResourceId()).isEqualTo("PLC-AUTO-TYPE");
+        assertThat(response.getType()).isEqualTo("INDUSTRIAL_NODE");
+        assertThat(response.getCategory()).isEqualTo("OT_DEVICE");
+    }
+
+    @Test
+    @DisplayName("Verify General Digital Twin template is registered and discoverable in GENERAL category")
+    void testGeneralDigitalTwinTemplateDiscovered() {
+        when(templateRepository.findByCategoryIgnoreCase("GENERAL")).thenReturn(Collections.emptyList());
+
+        List<ResourceTemplateDto> templates = resourceManager.getAllTemplates("GENERAL");
+
+        assertThat(templates).isNotEmpty();
+        ResourceTemplateDto twinTpl = templates.stream()
+                .filter(t -> "GENERIC_DIGITAL_TWIN".equals(t.getTemplateCode()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(twinTpl.isSystemTemplate()).isTrue();
+        assertThat(twinTpl.getCategory()).isEqualTo("GENERAL");
+        assertThat(twinTpl.getResourceType()).isEqualTo("DIGITAL_TWIN");
+        assertThat(twinTpl.getPropertySchema()).isNotEmpty();
+        assertThat(twinTpl.getMethodsSchema()).hasSize(2);
+        assertThat(twinTpl.getMethodsSchema()).extracting("name")
+                .contains("CALCULATE_HEALTH", "RESET_STATE");
+    }
+
+    @Test
+    @DisplayName("Verify resource creation with multiple comma-separated templates of same category succeeds and resolves methods")
+    void testCreateResourceWithMultipleTemplatesOfSameCategory() {
+        when(resourceRepository.existsByResourceId("MULTI-PLC-01")).thenReturn(false);
+
+        when(templateRepository.findByTemplateCode("OPC_UA_CLIENT")).thenReturn(java.util.Optional.empty());
+        when(templateRepository.findByTemplateCode("OPC_UA_SERVER")).thenReturn(java.util.Optional.empty());
+
+        ResourceRequestDto request = ResourceRequestDto.builder()
+                .resourceId("MULTI-PLC-01")
+                .name("Combined OPC UA Endpoint")
+                .type("PLC")
+                .category("OT_DEVICE")
+                .templateCode("OPC_UA_CLIENT,OPC_UA_SERVER")
+                .templateProperties(Map.of("endpointUrl", "opc.tcp://192.168.1.100:4840"))
+                .build();
+
+        ResourceEntity savedEntity = ResourceEntity.builder()
+                .id(UUID.randomUUID())
+                .resourceId("MULTI-PLC-01")
+                .name("Combined OPC UA Endpoint")
+                .type("PLC")
+                .category("OT_DEVICE")
+                .templateCode("OPC_UA_CLIENT,OPC_UA_SERVER")
+                .status("ACTIVE")
+                .templateProperties("{\"endpointUrl\":\"opc.tcp://192.168.1.100:4840\"}")
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+
+        when(resourceRepository.save(any(ResourceEntity.class))).thenReturn(savedEntity);
+
+        ResourceResponseDto response = resourceManager.createResource(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getResourceId()).isEqualTo("MULTI-PLC-01");
+        assertThat(response.getTemplateCode()).isEqualTo("OPC_UA_CLIENT,OPC_UA_SERVER");
+        assertThat(response.getEffectiveMethods()).asList().isNotEmpty();
+        // Should contain methods from both OPC_UA_CLIENT and OPC_UA_SERVER
+        assertThat(response.getEffectiveMethods()).asList()
+                .extracting(m -> String.valueOf(((Map<?, ?>) m).get("methodName")))
+                .contains("DISCOVER_TAGS", "START_SERVER");
+    }
+
+    @Test
+    @DisplayName("Verify resource creation with templates from conflicting categories is rejected")
+    void testCreateResourceWithMismatchedCategoryTemplatesThrows() {
+        when(resourceRepository.existsByResourceId("INVALID-MIX-01")).thenReturn(false);
+
+        ResourceRequestDto request = ResourceRequestDto.builder()
+                .resourceId("INVALID-MIX-01")
+                .name("Illegal Mixed Resource")
+                .type("DEVICE")
+                .category("OT_DEVICE")
+                .templateCode("OPC_UA_CLIENT,REST_API_GENERIC")
+                .build();
+
+        assertThatThrownBy(() -> resourceManager.createResource(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Cannot combine templates of different categories");
     }
 }

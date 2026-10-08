@@ -56,15 +56,26 @@ class NetworkService {
     return fallbackChan;
   }
 
-  async deleteChannel(id: string): Promise<void> {
+  async deleteChannel(id: string): Promise<{ success: boolean; message?: string }> {
     try {
-      await fetch(`${API_BASE}/channels/${encodeURIComponent(id)}`, {
+      const res = await fetch(`${API_BASE}/channels/${encodeURIComponent(id)}`, {
         method: 'DELETE'
       });
-    } catch {
-      // Graceful
+      if (res.ok) {
+        this.fallbackChannels = this.fallbackChannels.filter(c => c.id !== id);
+        return { success: true };
+      }
+      const data = await res.json().catch(() => null);
+      return {
+        success: false,
+        message: data?.message || `Failed to delete channel (${res.status})`
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        message: err instanceof Error ? err.message : 'Network communication error'
+      };
     }
-    this.fallbackChannels = this.fallbackChannels.filter(c => c.id !== id);
   }
 
   async testConnection(endpointUrl: string, protocol: string): Promise<{ success: boolean; latencyMs: number; message: string }> {
@@ -154,6 +165,27 @@ class NetworkService {
       }
     } catch (err) {
       console.error('Failed to sync channel data:', err);
+    }
+    return [];
+  }
+
+  /**
+   * Lightweight value-only sync: batch-reads DB tag values from PLC without browsing.
+   * Detects MISSING tags (Bad_NodeIdUnknown). Single Milo readValues() call.
+   */
+  async syncTagValues(channelId: string): Promise<DeviceTag[]> {
+    try {
+      const res = await fetch(`${API_BASE}/channels/${encodeURIComponent(channelId)}/sync-values`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          return data;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync tag values:', err);
     }
     return [];
   }
@@ -251,6 +283,15 @@ class NetworkService {
     });
     if (!res.ok && res.status !== 404) {
       throw new Error(`Failed to remove tag: ${res.statusText}`);
+    }
+  }
+
+  async removeAllMonitoredTags(channelId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/channels/${encodeURIComponent(channelId)}/tags/all`, {
+      method: 'DELETE'
+    });
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`Failed to remove all tags: ${res.statusText}`);
     }
   }
 

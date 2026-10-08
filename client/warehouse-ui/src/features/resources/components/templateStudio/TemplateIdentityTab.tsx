@@ -9,6 +9,7 @@ interface CategoryOption {
 
 interface TemplateIdentityTabProps {
   isEditing: boolean;
+  isSystemTemplate?: boolean;
   templateCode: string;
   setTemplateCode: (val: string) => void;
   templateName: string;
@@ -21,12 +22,26 @@ interface TemplateIdentityTabProps {
   setDescription: (val: string) => void;
   documentationUrl: string;
   setDocumentationUrl: (val: string) => void;
+  responseTokenPropertyName?: string;
+  setResponseTokenPropertyName?: (val: string) => void;
   isCodeDuplicate: boolean;
   categories: CategoryOption[];
 }
 
+const RESOURCE_TYPE_SUGGESTIONS = [
+  'PHYSICAL_ASSET',
+  'STORAGE_LOCATION',
+  'PROCESS_CELL',
+  'DIGITAL_TWIN',
+  'SENSOR_DEVICE',
+  'CALCULATOR',
+  'CYBER_SERVICE',
+  'ROBOTIC_CELL'
+];
+
 export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
   isEditing,
+  isSystemTemplate = false,
   templateCode,
   setTemplateCode,
   templateName,
@@ -39,9 +54,12 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
   setDescription,
   documentationUrl,
   setDocumentationUrl,
+  responseTokenPropertyName = '',
+  setResponseTokenPropertyName,
   isCodeDuplicate,
   categories
 }) => {
+  const isLockedArchetype = isEditing && isSystemTemplate;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
@@ -52,7 +70,7 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
           <input
             type="text"
             disabled={isEditing}
-            placeholder="e.g. SIEMENS_S7_1500"
+            placeholder="e.g. ASSET_ZONE_01"
             value={templateCode}
             onChange={e => setTemplateCode(e.target.value.toUpperCase())}
             style={{
@@ -64,7 +82,9 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
               color: 'var(--text-primary)',
               fontSize: '13px',
               fontFamily: 'monospace',
-              outline: 'none'
+              outline: 'none',
+              minHeight: '48px',
+              boxSizing: 'border-box'
             }}
           />
           {isCodeDuplicate && (
@@ -80,7 +100,7 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
           </label>
           <input
             type="text"
-            placeholder="e.g. Siemens S7-1500 Zone Conveyor"
+            placeholder="e.g. High-Density Buffer Location"
             value={templateName}
             onChange={e => setTemplateName(e.target.value)}
             style={{
@@ -91,7 +111,9 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
               backgroundColor: 'var(--bg-surface)',
               color: 'var(--text-primary)',
               fontSize: '13px',
-              outline: 'none'
+              outline: 'none',
+              minHeight: '48px',
+              boxSizing: 'border-box'
             }}
           />
         </div>
@@ -99,24 +121,37 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
 
       {/* Category Cards */}
       <div>
-        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>
-          Industrial Asset Category <span style={{ color: '#EF4444' }}>*</span>
-        </label>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            Resource Category (Optional)
+          </label>
+          {isLockedArchetype && (
+            <span style={{ fontSize: '11px', color: '#F59E0B', fontWeight: 500 }}>
+              Category locked on standard system archetypes
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
           {categories.map(c => {
             const selected = category === c.key;
             return (
               <div
                 key={c.key}
-                onClick={() => setCategory(c.key)}
+                onClick={() => {
+                  if (!isLockedArchetype) {
+                    setCategory(c.key);
+                  }
+                }}
                 style={{
                   padding: '12px',
                   borderRadius: '8px',
                   border: `1.5px solid ${selected ? '#3B82F6' : 'var(--border-default)'}`,
                   backgroundColor: selected ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-surface)',
-                  cursor: 'pointer',
+                  cursor: isLockedArchetype ? 'not-allowed' : 'pointer',
+                  opacity: isLockedArchetype && !selected ? 0.6 : 1,
                   transition: 'all 0.15s ease',
-                  minHeight: '48px'
+                  minHeight: '48px',
+                  boxSizing: 'border-box'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -137,11 +172,12 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
       {/* Resource Type */}
       <div>
         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '5px' }}>
-          Resource Type <span style={{ color: '#EF4444' }}>*</span>
+          Resource Type (Role / Archetype) <span style={{ color: '#EF4444' }}>*</span>
         </label>
         <input
           type="text"
-          placeholder="e.g. CONVEYOR, AGV, PLC, SCANNER, CALCULATOR, ALGORITHM, REST_SERVICE"
+          disabled={isLockedArchetype}
+          placeholder="e.g. PHYSICAL_ASSET, STORAGE_LOCATION, PROCESS_CELL, SENSOR_DEVICE"
           value={resourceType}
           onChange={e => setResourceType(e.target.value.toUpperCase())}
           style={{
@@ -149,31 +185,39 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
             padding: '10px 12px',
             borderRadius: '6px',
             border: '1px solid var(--border-default)',
-            backgroundColor: 'var(--bg-surface)',
+            backgroundColor: isLockedArchetype ? 'var(--bg-surface-subtle)' : 'var(--bg-surface)',
             color: 'var(--text-primary)',
             fontSize: '13px',
-            outline: 'none'
+            outline: 'none',
+            minHeight: '48px',
+            boxSizing: 'border-box',
+            cursor: isLockedArchetype ? 'not-allowed' : 'text'
           }}
         />
-        <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-          {['CONVEYOR', 'AGV', 'PLC', 'ROBOT', 'SCANNER', 'CALCULATOR', 'ALGORITHM', 'SERVICE'].map(sugg => (
-            <span
-              key={sugg}
-              onClick={() => setResourceType(sugg)}
-              style={{
-                fontSize: '10.5px',
-                padding: '2px 8px',
-                borderRadius: '4px',
-                backgroundColor: 'var(--bg-surface-subtle)',
-                border: '1px solid var(--border-default)',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer'
-              }}
-            >
-              +{sugg}
-            </span>
-          ))}
-        </div>
+        {!isLockedArchetype && (
+          <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+            {RESOURCE_TYPE_SUGGESTIONS.map(sugg => (
+              <span
+                key={sugg}
+                onClick={() => setResourceType(sugg)}
+                style={{
+                  fontSize: '10.5px',
+                  padding: '4px 10px',
+                  borderRadius: '4px',
+                  backgroundColor: 'var(--bg-surface-subtle)',
+                  border: '1px solid var(--border-default)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  minHeight: '28px',
+                  display: 'inline-flex',
+                  alignItems: 'center'
+                }}
+              >
+                +{sugg}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Description & Doc URL */}
@@ -183,7 +227,7 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
         </label>
         <textarea
           rows={2}
-          placeholder="Engineering purpose, hardware specs, wiring or protocol notes..."
+          placeholder="Purpose, operational responsibilities, engineering parameters..."
           value={description}
           onChange={e => setDescription(e.target.value)}
           style={{
@@ -195,18 +239,19 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
             color: 'var(--text-primary)',
             fontSize: '12.5px',
             outline: 'none',
-            resize: 'vertical'
+            resize: 'vertical',
+            boxSizing: 'border-box'
           }}
         />
       </div>
 
       <div>
         <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '5px' }}>
-          Documentation URL / Schematics Link
+          Documentation URL / Reference Link
         </label>
         <input
           type="text"
-          placeholder="https://docs.plant.internal/schematics/s7-1500"
+          placeholder="https://docs.plant.internal/assets/specs"
           value={documentationUrl}
           onChange={e => setDocumentationUrl(e.target.value)}
           style={{
@@ -217,9 +262,49 @@ export const TemplateIdentityTab: React.FC<TemplateIdentityTabProps> = ({
             backgroundColor: 'var(--bg-surface)',
             color: 'var(--text-primary)',
             fontSize: '12.5px',
-            outline: 'none'
+            outline: 'none',
+            minHeight: '48px',
+            boxSizing: 'border-box'
           }}
         />
+      </div>
+
+      {/* Response Token Property Name (JSON key for software/REST auth) */}
+      <div>
+        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '5px' }}>
+          Response Token Property Name
+        </label>
+        <input
+          type="text"
+          list="template-token-field-presets"
+          placeholder="e.g. accessToken, access_token, token, jwt"
+          value={responseTokenPropertyName || ''}
+          onChange={e => setResponseTokenPropertyName?.(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '8px 12px',
+            borderRadius: '6px',
+            border: '1px solid var(--border-default)',
+            backgroundColor: 'var(--bg-surface)',
+            color: 'var(--text-primary)',
+            fontSize: '12.5px',
+            fontFamily: 'monospace',
+            outline: 'none',
+            minHeight: '48px',
+            boxSizing: 'border-box'
+          }}
+        />
+        <datalist id="template-token-field-presets">
+          <option value="accessToken" />
+          <option value="access_token" />
+          <option value="token" />
+          <option value="jwt" />
+          <option value="jwt_token" />
+          <option value="data.accessToken" />
+        </datalist>
+        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
+          JSON key in the authentication response extracted by TokenManager for downstream REST dispatches.
+        </span>
       </div>
     </div>
   );

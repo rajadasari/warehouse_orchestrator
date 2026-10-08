@@ -71,13 +71,14 @@ Write-Host " Timestamp           : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -F
 Write-Header "STEP 1: Graceful Service Shutdown"
 
 $servicesInReverse = @(
-    @{ id = "warehouse-gateway"; exe = "gateway-service" },
-    @{ id = "warehouse-wes";     exe = "wes-service" },
-    @{ id = "warehouse-wms";     exe = "wms-service" },
-    @{ id = "warehouse-fleet";   exe = "fleet-service" },
-    @{ id = "warehouse-asrs";    exe = "asrs-wcs-service" },
-    @{ id = "warehouse-wcs";     exe = "wcs-service" },
-    @{ id = "warehouse-auth";    exe = "auth-service" }
+    @{ id = "warehouse-gateway";  exe = "gateway-service" },
+    @{ id = "warehouse-analysis"; exe = "analysis-service" },
+    @{ id = "warehouse-wes";      exe = "wes-service" },
+    @{ id = "warehouse-wms";      exe = "wms-service" },
+    @{ id = "warehouse-fleet";    exe = "fleet-service" },
+    @{ id = "warehouse-asrs";     exe = "asrs-wcs-service" },
+    @{ id = "warehouse-wcs";      exe = "wcs-service" },
+    @{ id = "warehouse-auth";     exe = "auth-service" }
 )
 
 foreach ($svc in $servicesInReverse) {

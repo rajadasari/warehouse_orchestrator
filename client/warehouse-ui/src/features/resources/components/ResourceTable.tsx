@@ -20,7 +20,8 @@ import {
   Server, 
   Eye, 
   Plus,
-  Cpu 
+  Cpu,
+  Code2
 } from 'lucide-react';
 import { ResourceItem } from '../../../services/resourceService';
 import { Badge, getStatusBadgeVariant } from '../../../components/common/Badge';
@@ -664,21 +665,39 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                             <Cpu size={14} />
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => onOpenMethods(res)}
-                          title="Test & Validate Authentication"
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: '#D97706',
-                            padding: '3px 5px',
-                            borderRadius: '4px'
-                          }}
-                        >
-                          <Key size={13} />
-                        </button>
+                        {res.category?.toUpperCase() === 'SOFTWARE' ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenMethods(res)}
+                            title="API Services & Authentication Validation"
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: '#D97706',
+                              padding: '3px 5px',
+                              borderRadius: '4px'
+                            }}
+                          >
+                            <Key size={13} />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onOpenMethods(res)}
+                            title="Java & Python Services"
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: '#10B981',
+                              padding: '3px 5px',
+                              borderRadius: '4px'
+                            }}
+                          >
+                            <Code2 size={13} />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => onOpenDetails(res)}

@@ -215,6 +215,15 @@ foreach ($s in $requiredScripts) {
     }
 }
 
+# 5b. Stage Handshake Analysis Engine (Python FastAPI)
+$srcDcsLogs = Join-Path $repoRoot "release\dcs_logs"
+$targetToolsAnalyzer = Join-Path $toolsDir "analyzer"
+if (Test-Path $srcDcsLogs) {
+    if (-not (Test-Path $targetToolsAnalyzer)) { New-Item -ItemType Directory -Path $targetToolsAnalyzer -Force | Out-Null }
+    Copy-Item -Path "$srcDcsLogs\*" -Destination $targetToolsAnalyzer -Recurse -Force
+    Write-Host " [OK] Staged Handshake Analysis Engine into tools/analyzer" -ForegroundColor Green
+}
+
 # 6. Generate One-Click Deployment Launchers in release root
 Write-Host "`n[STEP 6/6] Generating One-Click Deployment Launchers..." -ForegroundColor Yellow
 
@@ -279,9 +288,10 @@ WAREHOUSE ORCHESTRATOR - OFFLINE RELEASE BUNDLE INSTRUCTIONS
 
 PREREQUISITES ON TARGET PC:
   1. Java 21 (or 17) LTS installed (verify: java -version)
-  2. PostgreSQL 16/17 running on port 5432 with existing database: $DbName
-  3. Eclipse Mosquitto MQTT broker running on port 1883
-  4. Elevated PowerShell (Run as Administrator)
+  2. Python 3.10+ installed (verify: python --version)
+  3. PostgreSQL 16/17 running on port 5432 with existing database: $DbName
+  4. Eclipse Mosquitto MQTT broker running on port 1883
+  5. Elevated PowerShell (Run as Administrator)
 
 --------------------------------------------------------------------------------
 1. ONE-CLICK DEPLOYMENT (USES EXISTING DATABASE & DATA)
@@ -294,7 +304,7 @@ Or simply run from Command Prompt:
   deploy.bat
 
 This command:
-  - Deploys all 7 microservices to C:\warehouse-platform
+  - Deploys all 8 services (7 Spring Boot JARs + Python Analysis Engine) to C:\warehouse-platform
   - Configures services to use existing database '$DbName' on $DbHost
   - Preserves all existing database schemas, tables, users, and business data
   - Registers and starts Windows Services in dependency order
@@ -307,14 +317,14 @@ Once complete:
 --------------------------------------------------------------------------------
 2. SERVICE MANAGEMENT (DAY-2 OPERATIONS)
 --------------------------------------------------------------------------------
-Use .\scripts\onprem\manage_services.ps1 to control all 7 microservices:
+Use .\scripts\onprem\manage_services.ps1 to control all platform services:
 
   - Check status & health:   .\scripts\onprem\manage_services.ps1 -Action status
   - Start all services:      .\scripts\onprem\manage_services.ps1 -Action start
   - Stop all services:       .\scripts\onprem\manage_services.ps1 -Action stop
   - Restart all services:    .\scripts\onprem\manage_services.ps1 -Action restart
   - Unregister from Windows: .\scripts\onprem\manage_services.ps1 -Action uninstall
-  - Live log streaming:      .\scripts\onprem\manage_services.ps1 -Action logs -Service auth
+  - Live log streaming:      .\scripts\onprem\manage_services.ps1 -Action logs -Service analysis
 
 --------------------------------------------------------------------------------
 3. SAFE PLATFORM RESET (PRESERVING DATABASE)
@@ -342,9 +352,10 @@ This release bundle is pre-configured to connect to your existing PostgreSQL dat
 
 ## Prerequisites on Target Host
 1. **Java 21 or 17 LTS**: \`java -version\` in System PATH.
-2. **PostgreSQL 16/17**: Running on port 5432 with existing database \`$DbName\`.
-3. **Eclipse Mosquitto**: Running on port 1883.
-4. **PowerShell**: Elevated shell (**Run as Administrator**).
+2. **Python 3.10+**: \`python --version\` in System PATH.
+3. **PostgreSQL 16/17**: Running on port 5432 with existing database \`$DbName\`.
+4. **Eclipse Mosquitto**: Running on port 1883.
+5. **PowerShell**: Elevated shell (**Run as Administrator**).
 
 ---
 
@@ -359,6 +370,7 @@ Open an elevated PowerShell prompt in this release folder:
 
 ### What This Does:
 - Stages all 7 Spring Boot microservice binaries into \`C:\warehouse-platform\bin\`.
+- Stages the Python FastAPI Handshake & Station Tag Analysis service into \`C:\warehouse-platform\tools\analyzer\`.
 - Deploys the industrial React Web UI into \`C:\warehouse-platform\static-ui\`.
 - Connects automatically to existing database \`$DbName\` on \`$DbHost\`.
 - Skips schema overwrites (\`-SkipDbInit\`), keeping all existing data 100% intact.
@@ -372,7 +384,7 @@ Open an elevated PowerShell prompt in this release folder:
 ---
 
 ## 2. Day-2 Service Operations
-Manage all 7 platform services using \`manage_services.ps1\`:
+Manage all platform services using \`manage_services.ps1\`:
 
 \`\`\`powershell
 # Check status of Windows services and Actuator health endpoints
@@ -390,8 +402,8 @@ Manage all 7 platform services using \`manage_services.ps1\`:
 # Unregister from Windows SCM
 .\scripts\onprem\manage_services.ps1 -Action uninstall
 
-# Tail live log for a specific service (auth, wes, wms, wcs, asrs, fleet, gateway)
-.\scripts\onprem\manage_services.ps1 -Action logs -Service wes
+# Tail live log for a specific service (auth, wes, wms, wcs, asrs, fleet, gateway, analysis)
+.\scripts\onprem\manage_services.ps1 -Action logs -Service analysis
 \`\`\`
 
 ---

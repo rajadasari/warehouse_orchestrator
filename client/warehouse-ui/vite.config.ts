@@ -59,6 +59,10 @@ export default defineConfig({
           });
         }
       },
+      '/api/v1/analysis': {
+        target: process.env.ANALYSIS_SERVICE_URL || 'http://127.0.0.1:8095',
+        changeOrigin: true
+      },
       '/swagger-ui': {
         target: process.env.WES_SERVICE_URL || 'http://127.0.0.1:8086',
         changeOrigin: true

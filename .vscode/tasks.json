@@ -75,11 +75,33 @@
       }
     },
     {
+      "label": "Start Handshake Analyzer Server",
+      "type": "shell",
+      "command": "python release/dcs_logs/handshake_analyzer_server.py",
+      "isBackground": true,
+      "options": {
+        "env": {
+          "ANALYSIS_PORT": "8095"
+        }
+      },
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Starting PLC-mWCS Handshake Analysis Server",
+          "endsPattern": "Uvicorn running on"
+        }
+      }
+    },
+    {
       "label": "Start Fullstack (Backend + Frontend)",
       "dependsOn": [
         "Start AuthService (Backend)",
         "Start WesService (Backend)",
-        "Start Warehouse UI"
+        "Start Warehouse UI",
+        "Start Handshake Analyzer Server"
       ],
       "dependsOrder": "parallel",
       "problemMatcher": []
@@ -89,7 +111,8 @@
       "dependsOn": [
         "Start AuthService (Backend)",
         "Start WesService (Backend)",
-        "Start Warehouse UI"
+        "Start Warehouse UI",
+        "Start Handshake Analyzer Server"
       ],
       "dependsOrder": "parallel",
       "problemMatcher": []

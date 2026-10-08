@@ -10,6 +10,9 @@ import { ApiMappingManagerView } from './features/mappings/ApiMappingManagerView
 import { WorkflowComposerView } from './features/workflows/WorkflowComposerView';
 import { DatabaseSettingsView } from './features/configuration/DatabaseSettingsView';
 import { NetworkGatewayView } from './features/network/NetworkGatewayView';
+import { HandshakeAnalysisView } from './features/analysis/HandshakeAnalysisView';
+import { StationTagInspectorView } from './features/analysis/StationTagInspectorView';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 interface AuthSession {
   isLoggedIn: boolean;
@@ -32,7 +35,10 @@ export type NavItemId =
   | 'inventory' 
   | 'custom-fields' 
   | 'network'
-  | 'wms-forms';
+  | 'wms-forms'
+  | 'analysis'
+  | 'analysis-group'
+  | 'station-tags';
 
 export const App: React.FC = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -129,6 +135,16 @@ export const App: React.FC = () => {
         {activeNav === 'users' && <UserManagementView />}
         {(activeNav === 'inventory' || activeNav === 'custom-fields') && <PalletInventoryView />}
         {activeNav === 'wms-forms' && <WmsFormsView />}
+        {(activeNav === 'analysis' || activeNav === 'analysis-group') && (
+          <ErrorBoundary fallbackTitle="Handshake Analysis Error">
+            <HandshakeAnalysisView onNavigateToStationTags={() => setActiveNav('station-tags')} />
+          </ErrorBoundary>
+        )}
+        {activeNav === 'station-tags' && (
+          <ErrorBoundary fallbackTitle="Station Tag Inspector Error">
+            <StationTagInspectorView onNavigateToHandshake={() => setActiveNav('analysis')} />
+          </ErrorBoundary>
+        )}
       </main>
     </div>
   );

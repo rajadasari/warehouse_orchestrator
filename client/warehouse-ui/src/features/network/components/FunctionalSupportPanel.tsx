@@ -52,7 +52,7 @@ export const FunctionalSupportPanel: React.FC<FunctionalSupportPanelProps> = ({ 
   }, [channel.id]);
 
   const loadTags = useCallback(async () => {
-    const tags = await networkService.syncChannelData(channel.id);
+    const tags = await networkService.getTags(channel.id);
     setAvailableTags(tags);
   }, [channel.id]);
 

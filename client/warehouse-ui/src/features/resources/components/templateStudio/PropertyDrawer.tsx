@@ -259,6 +259,24 @@ export const PropertyDrawer: React.FC<PropertyDrawerProps> = ({
               </h4>
             </div>
 
+            {editingProperty?.isBaseProperty && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                color: '#38BDF8',
+                fontSize: '11.5px',
+                marginBottom: '6px'
+              }}>
+                <ShieldCheck size={16} />
+                <span>Base Platform Property: Name and data type are protected to ensure system telemetry compatibility. Default value and tags remain customizable.</span>
+              </div>
+            )}
+
             {/* Name / Key */}
             <div>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary, #f8fafc)', marginBottom: '4px' }}>
@@ -266,6 +284,7 @@ export const PropertyDrawer: React.FC<PropertyDrawerProps> = ({
               </label>
               <input
                 type="text"
+                disabled={Boolean(editingProperty?.isBaseProperty)}
                 value={name}
                 onChange={e => handleNameChange(e.target.value)}
                 placeholder="e.g. conveyorSpeed, maxPayloadKg"
@@ -274,16 +293,18 @@ export const PropertyDrawer: React.FC<PropertyDrawerProps> = ({
                   padding: '8px 12px',
                   borderRadius: '6px',
                   border: nameError ? '1px solid #ef4444' : '1px solid var(--border-default, #334155)',
-                  backgroundColor: 'var(--bg-surface, #1e293b)',
+                  backgroundColor: editingProperty?.isBaseProperty ? 'var(--bg-surface-subtle, #0f172a)' : 'var(--bg-surface, #1e293b)',
                   color: 'var(--text-primary, #f8fafc)',
                   fontSize: '12.5px',
                   fontFamily: 'monospace',
                   boxSizing: 'border-box',
-                  outline: 'none'
+                  outline: 'none',
+                  cursor: editingProperty?.isBaseProperty ? 'not-allowed' : 'text',
+                  opacity: editingProperty?.isBaseProperty ? 0.75 : 1
                 }}
               />
               <div style={{ fontSize: '11px', color: 'var(--text-secondary, #94a3b8)', marginTop: '4px' }}>
-                Must follow OOP naming standards (alphanumeric and underscores, unique at template/resource scope).
+                {editingProperty?.isBaseProperty ? 'Base property key is immutable.' : 'Must follow OOP naming standards (alphanumeric and underscores, unique at template/resource scope).'}
               </div>
               {nameError && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: '#ef4444', marginTop: '4px' }}>
@@ -429,6 +450,7 @@ export const PropertyDrawer: React.FC<PropertyDrawerProps> = ({
                 Data Type <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <select
+                disabled={Boolean(editingProperty?.isBaseProperty)}
                 value={dataType}
                 onChange={e => setDataType(e.target.value as IndustrialPropertyType)}
                 style={{
@@ -436,11 +458,13 @@ export const PropertyDrawer: React.FC<PropertyDrawerProps> = ({
                   padding: '8px 12px',
                   borderRadius: '6px',
                   border: '1px solid var(--border-default, #334155)',
-                  backgroundColor: 'var(--bg-surface, #1e293b)',
+                  backgroundColor: editingProperty?.isBaseProperty ? 'var(--bg-surface-subtle, #0f172a)' : 'var(--bg-surface, #1e293b)',
                   color: 'var(--text-primary, #f8fafc)',
                   fontSize: '12.5px',
                   boxSizing: 'border-box',
-                  outline: 'none'
+                  outline: 'none',
+                  cursor: editingProperty?.isBaseProperty ? 'not-allowed' : 'pointer',
+                  opacity: editingProperty?.isBaseProperty ? 0.75 : 1
                 }}
               >
                 {propertyTypes.map(t => (

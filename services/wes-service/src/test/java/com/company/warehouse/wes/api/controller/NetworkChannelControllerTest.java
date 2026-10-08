@@ -1,6 +1,7 @@
 package com.company.warehouse.wes.api.controller;
 
 import com.company.warehouse.wes.business.network.LiveOpcUaChannelDriver;
+import com.company.warehouse.wes.business.network.NetworkChannelService;
 import com.company.warehouse.wes.data.entity.NetworkDeviceChannelEntity;
 import com.company.warehouse.wes.data.entity.NetworkDeviceTagEntity;
 import com.company.warehouse.wes.data.entity.NetworkTagAcquisitionConfigEntity;
@@ -8,6 +9,7 @@ import com.company.warehouse.wes.data.repository.NetworkDeviceChannelRepository;
 import com.company.warehouse.wes.data.repository.NetworkDeviceTagRepository;
 import com.company.warehouse.wes.data.repository.NetworkTagAcquisitionConfigRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.eclipse.milo.opcua.stack.core.types.builtin.StatusCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,7 +41,8 @@ class NetworkChannelControllerTest {
         acquisitionConfigRepository = Mockito.mock(NetworkTagAcquisitionConfigRepository.class);
         liveOpcUaDriver = Mockito.mock(LiveOpcUaChannelDriver.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        controller = new NetworkChannelController(channelRepository, tagRepository, acquisitionConfigRepository, liveOpcUaDriver, objectMapper);
+        NetworkChannelService networkChannelService = new NetworkChannelService(channelRepository, tagRepository, acquisitionConfigRepository, liveOpcUaDriver, objectMapper);
+        controller = new NetworkChannelController(channelRepository, tagRepository, acquisitionConfigRepository, liveOpcUaDriver, networkChannelService, objectMapper);
     }
 
     @Test
@@ -154,14 +157,14 @@ class NetworkChannelControllerTest {
         when(channelRepository.findById(chanId)).thenReturn(Optional.of(channel));
         when(tagRepository.findByChannelIdAndNodeId(chanId, "ns=2;i=3")).thenReturn(Optional.of(existingTag));
         when(tagRepository.save(any(NetworkDeviceTagEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(liveOpcUaDriver.writeLiveValue(any(), any(), any())).thenReturn(true);
+        when(liveOpcUaDriver.writeLiveValueWithStatus(any(), any(), any())).thenReturn(StatusCode.GOOD);
 
         Map<String, Object> req = Map.of(
                 "nodeId", "ns=2;i=3",
                 "value", 42
         );
 
-        ResponseEntity<Map<String, Object>> response = controller.writeChannelTag(chanId.toString(), req);
+        ResponseEntity<Map<String, Object>> response = controller.writeTag(chanId.toString(), req);
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody()).containsEntry("success", true);

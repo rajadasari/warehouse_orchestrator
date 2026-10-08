@@ -2,6 +2,9 @@ package org.platform.resourcemanager.domain.rule;
 
 import org.platform.resourcemanager.domain.model.ResourceId;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -12,6 +15,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Supports exact resource subscriptions or wildcard subscriptions across all resources for a property.
  */
 public class RuleSubscriptionEngine {
+
+    private static final Logger log = LoggerFactory.getLogger(RuleSubscriptionEngine.class);
 
     // Key: targetResource (or null for wildcard), Sub-Key: propertyName -> List of subscriptions
     private final Map<String, List<RuleSubscription>> subscriptionsByProperty = new ConcurrentHashMap<>();
@@ -98,8 +103,8 @@ public class RuleSubscriptionEngine {
             sub.action().execute(resourceId, propertyName, newValue);
         } catch (Exception ex) {
             // Defensive execution: user action error must never corrupt core engine state
-            System.err.println("[RuleSubscriptionEngine] Error executing action for sub "
-                    + sub.subscriptionId() + ": " + ex.getMessage());
+            log.error("Rule action failed subscriptionId={}, resourceId={}, property={}",
+                    sub.subscriptionId(), resourceId, propertyName, ex);
         }
     }
 

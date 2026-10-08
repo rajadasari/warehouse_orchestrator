@@ -1,4 +1,4 @@
-import { MethodDefinition } from '../features/resources/types/resourceEnums';
+import { MethodDefinition, MethodExecutionResult } from '../features/resources/types/resourceEnums';
 
 export type IndustrialPropertyType =
   | 'STRING'
@@ -34,9 +34,10 @@ export interface ResourceTemplateItem {
   templateName: string;
   description?: string;
   documentationUrl?: string;
-  category: 'PHYSICAL' | 'SOFTWARE' | 'VIRTUAL' | 'LOGICAL' | string;
+  responseTokenPropertyName?: string;
+  category?: 'PHYSICAL' | 'SOFTWARE' | 'VIRTUAL' | 'LOGICAL' | 'GENERAL' | string;
   resourceType: string;
-  communicationProtocol: string;
+  communicationProtocol?: string;
   communicationMethod?: string;
   application?: string;
   defaultProtocol?: string;
@@ -59,8 +60,15 @@ async function handleResponse<T>(res: Response): Promise<T> {
     let errorMsg = `HTTP ${res.status} ${res.statusText}`;
     try {
       const errJson = await res.json();
-      if (errJson.message) errorMsg = errJson.message;
-      else if (errJson.error) errorMsg = errJson.error;
+      if (errJson.detail) {
+        errorMsg = errJson.detail;
+      } else if (errJson.errors && Array.isArray(errJson.errors) && errJson.errors.length > 0) {
+        errorMsg = errJson.errors.map((e: { defaultMessage?: string; message?: string }) => e.defaultMessage || e.message || JSON.stringify(e)).join('; ');
+      } else if (errJson.message) {
+        errorMsg = errJson.message;
+      } else if (errJson.error) {
+        errorMsg = errJson.error;
+      }
     } catch {
       // use status text
     }
@@ -129,4 +137,26 @@ export async function importTemplatePackageApi(pkg: TemplatePackageItem, overwri
     body: JSON.stringify(pkg)
   });
   return handleResponse<ResourceTemplateItem[]>(res);
+}
+
+export async function testMethodExecution(payload: {
+  methodName: string;
+  language?: string;
+  javaCode?: string;
+  script?: string;
+  parameters: Record<string, unknown>;
+  properties?: Record<string, unknown>;
+  storeResultToProperty?: string;
+}): Promise<MethodExecutionResult> {
+  const res = await fetch(`${BASE_URL}/test-method`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...payload,
+      language: payload.language || 'JAVA',
+      javaCode: payload.script || payload.javaCode,
+      script: payload.script || payload.javaCode
+    })
+  });
+  return handleResponse<MethodExecutionResult>(res);
 }

@@ -77,4 +77,21 @@ class OperationalGraphTest {
         assertThat(removed).isTrue();
         assertThat(graph.getChildren(line)).isEmpty();
     }
+
+    @Test
+    @DisplayName("Should remove node and cleanly purge all incoming and outgoing edges")
+    void shouldRemoveNodeAndPurgeAllEdges() {
+        // station1 FEEDS station2, robotArm PART_OF station1, station1 INTERLOCKED_WITH line
+        graph.addEdge(RelationshipEdge.of(station1, station2, RelationshipType.FEEDS));
+        graph.addEdge(RelationshipEdge.of(robotArm, station1, RelationshipType.PART_OF));
+        graph.addEdge(RelationshipEdge.of(station1, line, RelationshipType.INTERLOCKED_WITH));
+
+        boolean modified = graph.removeNode(station1);
+        assertThat(modified).isTrue();
+
+        assertThat(graph.getOutgoingEdges(station1)).isEmpty();
+        assertThat(graph.getIncomingEdges(station1)).isEmpty();
+        assertThat(graph.getConnectedTargets(robotArm, RelationshipType.PART_OF)).isEmpty();
+        assertThat(graph.getConnectedSources(station2, RelationshipType.FEEDS)).isEmpty();
+    }
 }
